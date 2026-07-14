@@ -1,0 +1,110 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+venv/
+ENV/
+env/
+.venv
+
+# PyCharm
+.idea/
+
+# VS Code
+.vscode/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+*.ipynb
+
+# PyTest
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.hypothesis/
+
+# MyPy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+.kiro
+# Data files
+data/raw/
+data/processed/
+datasets/
+*.csv
+*.txt
+*.pkl
+*.h5
+*.hdf5
+*.parquet
+
+# Model checkpoints
+checkpoints/
+models/saved/
+*.pth
+*.pt
+*.ckpt
+*.safetensors
+
+# Logs
+logs/
+*.log
+tensorboard/
+runs/
+
+# OS specific
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# Experiment results
+experiments/
+results/
+outputs/
+figures/
+
+# Documentation
+docs/_build/
+site/
+
+# Node.js (for API server)
+node_modules/
+package-lock.json
+yarn.lock
+.npm
+
+# Temporary files
+tmp/
+temp/
+*.tmp
