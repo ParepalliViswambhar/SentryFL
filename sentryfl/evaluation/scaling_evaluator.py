@@ -33,9 +33,9 @@ import logging
 
 # Import SentryFL components
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from data.dataset_loader import FederatedDataPartitioner
-from federated.client import FederatedClient
-from federated.server import AggregationServer
+from sentryfl.data.dataset_loader import FederatedDataPartitioner
+from sentryfl.federated.client import FederatedClient
+from sentryfl.federated.server import AggregationServer
 
 logger = logging.getLogger(__name__)
 

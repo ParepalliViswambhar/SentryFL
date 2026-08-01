@@ -184,9 +184,18 @@ class CheckpointManager:
         # Estimate checkpoint size (Requirement 18.6)
         # Rough estimate: serialize to get actual size
         import tempfile
-        with tempfile.NamedTemporaryFile(delete=True) as tmp_file:
-            torch.save(checkpoint, tmp_file.name)
-            estimated_size = os.path.getsize(tmp_file.name)
+        with tempfile.NamedTemporaryFile(delete=False) as tmp_file:
+            tmp_path = tmp_file.name
+        
+        try:
+            torch.save(checkpoint, tmp_path)
+            estimated_size = os.path.getsize(tmp_path)
+        finally:
+            # Clean up temp file
+            try:
+                os.unlink(tmp_path)
+            except:
+                pass
         
         # Check disk space before saving (Requirement 18.6)
         try:

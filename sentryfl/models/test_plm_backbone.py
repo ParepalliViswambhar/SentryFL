@@ -20,6 +20,19 @@ from sentryfl.models.plm_backbone import (
     PLMAnomalyDetector
 )
 
+# Check if transformers can load models (requires PyTorch >= 2.4)
+try:
+    from transformers import AutoModel
+    TRANSFORMERS_AVAILABLE = True
+except ImportError:
+    TRANSFORMERS_AVAILABLE = False
+
+# Skip marker for tests that require transformers with PyTorch support
+requires_transformers = pytest.mark.skipif(
+    not TRANSFORMERS_AVAILABLE,
+    reason="Transformers with PyTorch support not available (requires PyTorch >= 2.4)"
+)
+
 
 class TestPositionalEncoding:
     """Test suite for PositionalEncoding module"""
@@ -69,6 +82,7 @@ class TestPositionalEncoding:
             assert output.shape == (2, seq_len, 256)
 
 
+@requires_transformers
 class TestPLMTimeSeriesBackbone:
     """Test suite for PLMTimeSeriesBackbone module"""
     
@@ -202,6 +216,7 @@ class TestAnomalyDetectionHead:
         assert not torch.isinf(output).any()
 
 
+@requires_transformers
 class TestPLMAnomalyDetector:
     """Test suite for complete PLMAnomalyDetector model"""
     
@@ -311,6 +326,7 @@ class TestPLMAnomalyDetector:
         assert not torch.isnan(output_eval).any()
 
 
+@requires_transformers
 class TestIntegration:
     """Integration tests for complete PLM backbone system"""
     

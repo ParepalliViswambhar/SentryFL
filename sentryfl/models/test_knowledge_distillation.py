@@ -25,6 +25,19 @@ from sentryfl.models.knowledge_distillation import (
 )
 from sentryfl.models.plm_backbone import PLMAnomalyDetector
 
+# Check if transformers can load models (requires PyTorch >= 2.4)
+try:
+    from transformers import AutoModel
+    TRANSFORMERS_AVAILABLE = True
+except ImportError:
+    TRANSFORMERS_AVAILABLE = False
+
+# Skip marker for tests that require transformers with PyTorch support
+requires_transformers = pytest.mark.skipif(
+    not TRANSFORMERS_AVAILABLE,
+    reason="Transformers with PyTorch support not available (requires PyTorch >= 2.4)"
+)
+
 
 class TestStudentModel:
     """Test suite for StudentModel architecture"""
@@ -95,6 +108,7 @@ class TestStudentModel:
         assert not torch.isinf(output).any()
 
 
+@requires_transformers
 class TestKnowledgeDistillationModule:
     """Test suite for KnowledgeDistillationModule"""
     
@@ -488,6 +502,7 @@ class TestKnowledgeDistillationModule:
         assert not teacher_has_grads
 
 
+@requires_transformers
 class TestIntegration:
     """Integration tests for knowledge distillation system"""
     

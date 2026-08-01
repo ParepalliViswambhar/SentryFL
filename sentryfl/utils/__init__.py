@@ -42,6 +42,12 @@ from .validation import (
     validate_configuration_before_training,
 )
 
+from .reproducibility import (
+    ReproducibilityManager,
+    set_global_seed,
+    log_experiment_start,
+)
+
 __all__ = [
     'ConfigurationSystem',
     'ConfigurationError',
@@ -70,4 +76,8 @@ __all__ = [
     'check_disk_space',
     'check_gpu_memory',
     'validate_configuration_before_training',
+    # Reproducibility
+    'ReproducibilityManager',
+    'set_global_seed',
+    'log_experiment_start',
 ]

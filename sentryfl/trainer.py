@@ -32,7 +32,8 @@ from sentryfl.utils.config import ConfigurationSystem
 from sentryfl.utils.checkpoint_manager import CheckpointManager
 from sentryfl.utils.experiment_logger import ExperimentLogger
 from sentryfl.utils.validation import check_gpu_memory
-from sentryfl.utils.exceptions import SentryFLMemoryError as MemoryError
+from sentryfl.utils.exceptions import MemoryError as SentryFLMemoryError
+from sentryfl.utils.reproducibility import ReproducibilityManager
 
 # Configure logging
 logging.basicConfig(
@@ -103,9 +104,13 @@ class MainTrainer:
         self.evaluation_config = config.get_section('evaluation')
         self.experiment_config = config.get_section('experiment')
         
-        # Set random seed for reproducibility
-        torch.manual_seed(self.experiment_config['seed'])
-        np.random.seed(self.experiment_config['seed'])
+        # Setup reproducibility with comprehensive seed setting (Requirements 20.11, 20.12)
+        self.repro_manager = ReproducibilityManager(
+            seed=self.experiment_config.get('seed', 42),
+            log_dir=self.experiment_config.get('output_dir', '.')
+        )
+        self.repro_manager.set_seed()
+        logger.info(f"Random seed set to {self.repro_manager.seed} for reproducibility")
         
         # Initialize components
         self.checkpoint_manager = None
@@ -382,6 +387,19 @@ class MainTrainer:
         
         # Log hyperparameters
         self.experiment_logger.log_hyperparameters(self.config.to_dict())
+        
+        # Log system information for reproducibility (Requirements 20.5, 20.12)
+        system_info_path = self.repro_manager.log_system_info(
+            output_path=str(Path(self.experiment_config['output_dir']) / 'system_info.json')
+        )
+        logger.info(f"System information logged to {system_info_path}")
+        
+        # Create reproducibility report (combines system info + config)
+        repro_report_path = self.repro_manager.create_reproducibility_report(
+            experiment_config=self.config.to_dict(),
+            output_path=str(Path(self.experiment_config['output_dir']) / 'reproducibility_report.json')
+        )
+        logger.info(f"Reproducibility report saved to {repro_report_path}")
         
         logger.info("Experiment infrastructure initialized")
     

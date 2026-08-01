@@ -81,18 +81,21 @@ class TimeSeriesPreprocessor:
         """
         # Validate input
         if data.size == 0:
-            raise DataValidationError("Input data is empty")
+            raise ValueError("Input data is empty")
         
         if data.ndim != 2:
-            raise DataValidationError(
+            raise ValueError(
                 f"Expected 2D array [timesteps, features], got shape {data.shape}"
             )
         
-        # Validate no NaN/Inf before preprocessing
-        validate_no_nan_numpy(data, "fit_transform input data")
-        validate_no_inf_numpy(data, "fit_transform input data")
+        # Validate no Inf before preprocessing (NaN is handled by imputation)
+        try:
+            validate_no_inf_numpy(data, "fit_transform input data")
+        except DataValidationError as e:
+            # Convert to ValueError for API consistency
+            raise ValueError(str(e))
         
-        # Check for all-NaN columns
+        # Check for all-NaN columns before imputation
         if np.all(np.isnan(data), axis=0).any():
             raise ValueError(
                 "Data contains columns with all NaN values. Cannot impute."
@@ -100,6 +103,13 @@ class TimeSeriesPreprocessor:
         
         # Handle missing values with forward-fill
         data = self._forward_fill_imputation(data)
+        
+        # Validate no NaN values remain after imputation
+        try:
+            validate_no_nan_numpy(data, "fit_transform input data (after imputation)")
+        except DataValidationError as e:
+            # Convert to ValueError for API consistency
+            raise ValueError(str(e))
         
         # Apply normalization if enabled
         if self.normalize:
@@ -127,7 +137,7 @@ class TimeSeriesPreprocessor:
         """
         # Validate input
         if data.size == 0:
-            raise DataValidationError("Input data is empty")
+            raise ValueError("Input data is empty")
         
         if data.ndim != 2:
             raise DataValidationError(

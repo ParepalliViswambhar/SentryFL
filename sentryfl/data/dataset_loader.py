@@ -132,10 +132,15 @@ class SMDDatasetLoader(DatasetLoader):
             test_labels = test_labels.reshape(-1)
         
         # Validate data integrity using centralized validation functions
-        validate_no_nan_numpy(train_data, 'SMD train data')
-        validate_no_inf_numpy(train_data, 'SMD train data')
-        validate_no_nan_numpy(test_data, 'SMD test data')
-        validate_no_inf_numpy(test_data, 'SMD test data')
+        try:
+            validate_no_nan_numpy(train_data, 'SMD train data')
+            validate_no_inf_numpy(train_data, 'SMD train data')
+            validate_no_nan_numpy(test_data, 'SMD test data')
+            validate_no_inf_numpy(test_data, 'SMD test data')
+        except DataValidationError as e:
+            # Convert to ValueError for API consistency
+            raise ValueError(str(e))
+        
         self._validate_labels(test_labels, 'test_labels')
         
         # Check feature dimensions match
@@ -332,10 +337,15 @@ class NSLKDDDatasetLoader(DatasetLoader):
         test_features, test_labels = self._process_data(test_df, is_train=False)
         
         # Validate data integrity using centralized validation functions
-        validate_no_nan_numpy(train_features, 'NSL-KDD train data')
-        validate_no_inf_numpy(train_features, 'NSL-KDD train data')
-        validate_no_nan_numpy(test_features, 'NSL-KDD test data')
-        validate_no_inf_numpy(test_features, 'NSL-KDD test data')
+        try:
+            validate_no_nan_numpy(train_features, 'NSL-KDD train data')
+            validate_no_inf_numpy(train_features, 'NSL-KDD train data')
+            validate_no_nan_numpy(test_features, 'NSL-KDD test data')
+            validate_no_inf_numpy(test_features, 'NSL-KDD test data')
+        except DataValidationError as e:
+            # Convert to ValueError for API consistency
+            raise ValueError(str(e))
+        
         self._validate_labels(train_labels, 'train_labels')
         self._validate_labels(test_labels, 'test_labels')
         
