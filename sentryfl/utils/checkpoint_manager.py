@@ -26,6 +26,9 @@ from datetime import datetime
 import torch
 import torch.nn as nn
 
+from .validation import check_disk_space
+from .exceptions import StorageError
+
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -177,6 +180,24 @@ class CheckpointManager:
             'timestamp': datetime.now().isoformat(),
             'pytorch_version': torch.__version__
         }
+        
+        # Estimate checkpoint size (Requirement 18.6)
+        # Rough estimate: serialize to get actual size
+        import tempfile
+        with tempfile.NamedTemporaryFile(delete=True) as tmp_file:
+            torch.save(checkpoint, tmp_file.name)
+            estimated_size = os.path.getsize(tmp_file.name)
+        
+        # Check disk space before saving (Requirement 18.6)
+        try:
+            check_disk_space(
+                path=self.checkpoint_dir,
+                required_bytes=estimated_size,
+                buffer_fraction=0.1
+            )
+        except StorageError as e:
+            logger.error(f"Disk space check failed: {e}")
+            raise CheckpointError(f"Cannot save checkpoint due to insufficient disk space: {e}")
         
         try:
             # Save checkpoint

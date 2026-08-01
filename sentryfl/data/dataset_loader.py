@@ -17,6 +17,9 @@ import numpy as np
 import pandas as pd
 from sklearn.preprocessing import LabelEncoder
 
+from ..utils.validation import validate_no_nan_numpy, validate_no_inf_numpy
+from ..utils.exceptions import DataValidationError
+
 
 class DatasetLoader(ABC):
     """Base class for dataset loading"""
@@ -128,9 +131,11 @@ class SMDDatasetLoader(DatasetLoader):
         if test_labels.ndim == 1:
             test_labels = test_labels.reshape(-1)
         
-        # Validate data integrity
-        self._validate_data(train_data, 'train')
-        self._validate_data(test_data, 'test')
+        # Validate data integrity using centralized validation functions
+        validate_no_nan_numpy(train_data, 'SMD train data')
+        validate_no_inf_numpy(train_data, 'SMD train data')
+        validate_no_nan_numpy(test_data, 'SMD test data')
+        validate_no_inf_numpy(test_data, 'SMD test data')
         self._validate_labels(test_labels, 'test_labels')
         
         # Check feature dimensions match
@@ -326,9 +331,11 @@ class NSLKDDDatasetLoader(DatasetLoader):
         # Process test data
         test_features, test_labels = self._process_data(test_df, is_train=False)
         
-        # Validate data integrity
-        self._validate_data(train_features, 'train')
-        self._validate_data(test_features, 'test')
+        # Validate data integrity using centralized validation functions
+        validate_no_nan_numpy(train_features, 'NSL-KDD train data')
+        validate_no_inf_numpy(train_features, 'NSL-KDD train data')
+        validate_no_nan_numpy(test_features, 'NSL-KDD test data')
+        validate_no_inf_numpy(test_features, 'NSL-KDD test data')
         self._validate_labels(train_labels, 'train_labels')
         self._validate_labels(test_labels, 'test_labels')
         

@@ -18,6 +18,30 @@ from .checkpoint_manager import (
     CheckpointError,
 )
 
+from .exceptions import (
+    SentryFLError,
+    DataValidationError,
+    ConfigurationValidationError,
+    TrainingDivergenceError,
+    StorageError,
+    MemoryError,
+    PrivacyBudgetExhaustedError,
+    CommunicationError,
+)
+
+from .validation import (
+    validate_no_nan_numpy,
+    validate_no_inf_numpy,
+    validate_no_nan_torch,
+    validate_no_inf_torch,
+    validate_data_shape,
+    validate_dataset_disjointness,
+    check_divergence,
+    check_disk_space,
+    check_gpu_memory,
+    validate_configuration_before_training,
+)
+
 __all__ = [
     'ConfigurationSystem',
     'ConfigurationError',
@@ -26,4 +50,24 @@ __all__ = [
     'compare_experiments',
     'CheckpointManager',
     'CheckpointError',
+    # Exceptions
+    'SentryFLError',
+    'DataValidationError',
+    'ConfigurationValidationError',
+    'TrainingDivergenceError',
+    'StorageError',
+    'MemoryError',
+    'PrivacyBudgetExhaustedError',
+    'CommunicationError',
+    # Validation functions
+    'validate_no_nan_numpy',
+    'validate_no_inf_numpy',
+    'validate_no_nan_torch',
+    'validate_no_inf_torch',
+    'validate_data_shape',
+    'validate_dataset_disjointness',
+    'check_divergence',
+    'check_disk_space',
+    'check_gpu_memory',
+    'validate_configuration_before_training',
 ]

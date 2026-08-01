@@ -24,13 +24,16 @@ from pathlib import Path
 from copy import deepcopy
 import logging
 
+from .validation import validate_configuration_before_training
+from .exceptions import ConfigurationValidationError as ConfigError
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
 class ConfigurationError(Exception):
-    """Raised when configuration validation fails"""
+    """Raised when configuration validation fails (legacy, redirects to ConfigError)"""
     pass
 
 
@@ -417,6 +420,13 @@ class ConfigurationSystem:
                 f"Configuration validation failed with {len(errors)} error(s):\n" +
                 "\n".join(f"  - {e}" for e in errors)
             )
+        
+        # Additional centralized validation (Requirement 18.8)
+        try:
+            validate_configuration_before_training(self.config)
+        except ConfigError as e:
+            # Merge with existing errors if any
+            raise ConfigurationError(str(e))
     
     def save_config(self, output_path: str, format: str = 'yaml') -> None:
         """

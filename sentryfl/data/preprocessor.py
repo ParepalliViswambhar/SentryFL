@@ -16,6 +16,9 @@ from sklearn.preprocessing import StandardScaler
 import joblib
 from pathlib import Path
 
+from ..utils.validation import validate_no_nan_numpy, validate_no_inf_numpy, validate_data_shape
+from ..utils.exceptions import DataValidationError
+
 
 class TimeSeriesPreprocessor:
     """
@@ -78,12 +81,16 @@ class TimeSeriesPreprocessor:
         """
         # Validate input
         if data.size == 0:
-            raise ValueError("Input data is empty")
+            raise DataValidationError("Input data is empty")
         
         if data.ndim != 2:
-            raise ValueError(
+            raise DataValidationError(
                 f"Expected 2D array [timesteps, features], got shape {data.shape}"
             )
+        
+        # Validate no NaN/Inf before preprocessing
+        validate_no_nan_numpy(data, "fit_transform input data")
+        validate_no_inf_numpy(data, "fit_transform input data")
         
         # Check for all-NaN columns
         if np.all(np.isnan(data), axis=0).any():
@@ -120,12 +127,16 @@ class TimeSeriesPreprocessor:
         """
         # Validate input
         if data.size == 0:
-            raise ValueError("Input data is empty")
+            raise DataValidationError("Input data is empty")
         
         if data.ndim != 2:
-            raise ValueError(
+            raise DataValidationError(
                 f"Expected 2D array [timesteps, features], got shape {data.shape}"
             )
+        
+        # Validate no NaN/Inf before preprocessing
+        validate_no_nan_numpy(data, "transform input data")
+        validate_no_inf_numpy(data, "transform input data")
         
         # Handle missing values with forward-fill
         data = self._forward_fill_imputation(data)

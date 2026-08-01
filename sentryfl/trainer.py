@@ -31,6 +31,8 @@ from sentryfl.evaluation.evaluation_pipeline import EvaluationPipeline
 from sentryfl.utils.config import ConfigurationSystem
 from sentryfl.utils.checkpoint_manager import CheckpointManager
 from sentryfl.utils.experiment_logger import ExperimentLogger
+from sentryfl.utils.validation import check_gpu_memory
+from sentryfl.utils.exceptions import SentryFLMemoryError as MemoryError
 
 # Configure logging
 logging.basicConfig(
@@ -78,6 +80,19 @@ class MainTrainer:
         self.data_path = data_path
         self.device = device
         self.model.to(device)
+        
+        # GPU memory check with CPU fallback (Requirement 18.7)
+        if device == 'cuda' or device.startswith('cuda:'):
+            device_id = 0 if device == 'cuda' else int(device.split(':')[1])
+            is_available, message = check_gpu_memory(device_id=device_id)
+            
+            if not is_available:
+                logger.warning(f"GPU memory check failed: {message}")
+                logger.warning("Falling back to CPU for training")
+                self.device = 'cpu'
+                self.model.to('cpu')
+            else:
+                logger.info(message)
         
         # Extract configuration sections
         self.data_config = config.get_section('data')

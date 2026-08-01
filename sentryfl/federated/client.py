@@ -24,6 +24,9 @@ import time
 import copy
 from pathlib import Path
 
+from ..utils.validation import check_divergence, validate_no_nan_torch, validate_no_inf_torch
+from ..utils.exceptions import TrainingDivergenceError
+
 logger = logging.getLogger(__name__)
 
 
@@ -295,6 +298,25 @@ class FederatedClient:
                 batch_y = batch_y.float()
                 
                 loss = self.criterion(outputs, batch_y)
+                
+                # Check for divergence (Requirement 18.4)
+                try:
+                    check_divergence(
+                        loss=loss.item(),
+                        threshold=1000.0,
+                        client_id=self.client_id
+                    )
+                except TrainingDivergenceError as e:
+                    logger.error(f"Training divergence detected: {e}")
+                    # Return current state with divergence flag
+                    final_metrics = {
+                        'client_id': self.client_id,
+                        'diverged': True,
+                        'divergence_epoch': epoch + 1,
+                        'final_loss': loss.item(),
+                        'error_message': str(e)
+                    }
+                    return self.extract_parameters(), final_metrics
                 
                 # Backward pass (per-sample gradients if DP is enabled)
                 loss.backward()
