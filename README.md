@@ -15,7 +15,29 @@ SentryFL is a differentially private, communication-efficient federated learning
 pip install -r requirements.txt
 ```
 
-## Quick Start
+## Command-Line Interface
+
+SentryFL provides a comprehensive CLI for training, evaluation, and experiments.
+
+### Quick Start with CLI
+
+```bash
+# Train federated model
+python -m sentryfl.cli train --config config_example.yaml --data-path ./data/SMD
+
+# Evaluate trained model
+python -m sentryfl.cli evaluate --model-path ./models/model.pt --config config.yaml --data-path ./data/SMD
+
+# Run ablation study
+python -m sentryfl.cli ablation --config config.yaml --data-path ./data/SMD
+
+# Compare baselines
+python -m sentryfl.cli baseline --config config.yaml --data-path ./data/SMD
+```
+
+See [CLI_USAGE.md](CLI_USAGE.md) for comprehensive CLI documentation.
+
+## Quick Start (Python API)
 
 ### Loading SMD Dataset
 
