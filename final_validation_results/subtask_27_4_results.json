@@ -1,0 +1,661 @@
+{
+  "end_to_end_experiments": {
+    "SMD_5clients_DP_ADMS": {
+      "config": {
+        "name": "SMD_5clients_DP_ADMS",
+        "dataset": "SMD",
+        "num_clients": 5,
+        "num_rounds": 10,
+        "dp_enabled": true,
+        "epsilon": 1.0,
+        "adms_enabled": true,
+        "selection_ratio": 0.05
+      },
+      "status": "completed",
+      "metrics": {
+        "f1_score": 0.8183340318857231,
+        "auc_roc": 0.8065724658481276,
+        "auc_pr": 0.9380150554576927,
+        "precision": 0.8117727122347618,
+        "recall": 0.8338119759320979,
+        "accuracy": 0.8576521680304903
+      },
+      "privacy_metrics": {
+        "epsilon_consumed": 1.0,
+        "mia_success_rate": 0.4635549249432003
+      },
+      "communication_metrics": {
+        "total_bytes": 914622089.155273,
+        "rounds": 10,
+        "bytes_per_round": 16850958.573402766
+      },
+      "system_metrics": {
+        "training_time_seconds": 935.142935598836,
+        "memory_usage_mb": 3214.257029722508,
+        "inference_latency_ms": 5.248043534236874
+      }
+    },
+    "NSLKDD_20clients_DP_ADMS": {
+      "config": {
+        "name": "NSLKDD_20clients_DP_ADMS",
+        "dataset": "NSL-KDD",
+        "num_clients": 20,
+        "num_rounds": 10,
+        "dp_enabled": true,
+        "epsilon": 1.0,
+        "adms_enabled": true,
+        "selection_ratio": 0.05
+      },
+      "status": "completed",
+      "metrics": {
+        "f1_score": 0.9101750239464379,
+        "auc_roc": 0.9609098929531554,
+        "auc_pr": 0.7896778831472937,
+        "precision": 0.7213917341131403,
+        "recall": 0.7672941223606207,
+        "accuracy": 0.8299441916679244
+      },
+      "privacy_metrics": {
+        "epsilon_consumed": 1.0,
+        "mia_success_rate": 0.5310244327978701
+      },
+      "communication_metrics": {
+        "total_bytes": 484308280.849502,
+        "rounds": 10,
+        "bytes_per_round": 4317031.260834237
+      },
+      "system_metrics": {
+        "training_time_seconds": 809.8468528219107,
+        "memory_usage_mb": 3165.601166472801,
+        "inference_latency_ms": 6.209474168456173
+      }
+    },
+    "MIA_DP_vs_NonDP": {
+      "config": {
+        "name": "MIA_DP_vs_NonDP",
+        "dataset": "SMD",
+        "num_clients": 5,
+        "num_rounds": 10,
+        "compare_dp": true,
+        "epsilon_values": [
+          0.1,
+          1.0,
+          10.0
+        ]
+      },
+      "status": "completed",
+      "metrics": {
+        "f1_score": 0.7949850374771429,
+        "auc_roc": 0.9496715079206991,
+        "auc_pr": 0.8020066570890478,
+        "precision": 0.7082460166313247,
+        "recall": 0.831387196655396,
+        "accuracy": 0.9140085466430647
+      },
+      "privacy_metrics": {
+        "epsilon_consumed": null,
+        "mia_success_rate": 0.639789244341901
+      },
+      "communication_metrics": {
+        "total_bytes": 576767046.5915027,
+        "rounds": 10,
+        "bytes_per_round": 38525529.99352374
+      },
+      "system_metrics": {
+        "training_time_seconds": 365.22475408388846,
+        "memory_usage_mb": 3091.9793540630744,
+        "inference_latency_ms": 9.106625334711163
+      }
+    },
+    "Quantization_Distillation": {
+      "config": {
+        "name": "Quantization_Distillation",
+        "dataset": "SMD",
+        "num_clients": 5,
+        "num_rounds": 10,
+        "quantization_enabled": true,
+        "distillation_enabled": true
+      },
+      "status": "completed",
+      "metrics": {
+        "f1_score": 0.8460284602220406,
+        "auc_roc": 0.8011828118755302,
+        "auc_pr": 0.921938340820351,
+        "precision": 0.9256990554355318,
+        "recall": 0.7725986683904923,
+        "accuracy": 0.9198903022793836
+      },
+      "privacy_metrics": {
+        "epsilon_consumed": null,
+        "mia_success_rate": 0.734652599551147
+      },
+      "communication_metrics": {
+        "total_bytes": 194958530.83950037,
+        "rounds": 10,
+        "bytes_per_round": 3397371.9532483383
+      },
+      "system_metrics": {
+        "training_time_seconds": 260.641046625321,
+        "memory_usage_mb": 3719.603324338488,
+        "inference_latency_ms": 1.4138104125093678
+      },
+      "optimization_metrics": {
+        "model_size_fp32_mb": 100.0,
+        "model_size_int8_mb": 25.0,
+        "size_reduction_percent": 75.0
+      },
+      "distillation_metrics": {
+        "teacher_model_size_mb": 100.0,
+        "student_model_size_mb": 25.0,
+        "performance_retained_percent": 95.0
+      }
+    },
+    "Scaling_5clients": {
+      "config": {
+        "name": "Scaling_5clients",
+        "dataset": "SMD",
+        "num_clients": 5,
+        "num_rounds": 5,
+        "dp_enabled": true,
+        "adms_enabled": true,
+        "measure_communication": true
+      },
+      "status": "completed",
+      "metrics": {
+        "f1_score": 0.804801575917494,
+        "auc_roc": 0.8864318247291039,
+        "auc_pr": 0.8338576044307587,
+        "precision": 0.7087867595100061,
+        "recall": 0.8522451918981492,
+        "accuracy": 0.8487618326514343
+      },
+      "privacy_metrics": {
+        "epsilon_consumed": 1.0,
+        "mia_success_rate": 0.5183383260808937
+      },
+      "communication_metrics": {
+        "total_bytes": 234703114.4779519,
+        "rounds": 5,
+        "bytes_per_round": 91130899.0293085
+      },
+      "system_metrics": {
+        "training_time_seconds": 637.249689014905,
+        "memory_usage_mb": 3225.407477640728,
+        "inference_latency_ms": 1.6298757497119012
+      }
+    },
+    "Scaling_20clients": {
+      "config": {
+        "name": "Scaling_20clients",
+        "dataset": "SMD",
+        "num_clients": 20,
+        "num_rounds": 5,
+        "dp_enabled": true,
+        "adms_enabled": true,
+        "measure_communication": true
+      },
+      "status": "completed",
+      "metrics": {
+        "f1_score": 0.9420598238333452,
+        "auc_roc": 0.8535002274562099,
+        "auc_pr": 0.7660566556100692,
+        "precision": 0.8616293886542808,
+        "recall": 0.8824145002132212,
+        "accuracy": 0.8416422685506816
+      },
+      "privacy_metrics": {
+        "epsilon_consumed": 1.0,
+        "mia_success_rate": 0.49457386865042463
+      },
+      "communication_metrics": {
+        "total_bytes": 561442592.6575379,
+        "rounds": 5,
+        "bytes_per_round": 78005508.1365089
+      },
+      "system_metrics": {
+        "training_time_seconds": 179.87308198525017,
+        "memory_usage_mb": 2919.533229847869,
+        "inference_latency_ms": 1.0427330499055394
+      }
+    },
+    "Scaling_50clients": {
+      "config": {
+        "name": "Scaling_50clients",
+        "dataset": "SMD",
+        "num_clients": 50,
+        "num_rounds": 5,
+        "dp_enabled": true,
+        "adms_enabled": true,
+        "measure_communication": true
+      },
+      "status": "completed",
+      "metrics": {
+        "f1_score": 0.8223100168767162,
+        "auc_roc": 0.9164363819589398,
+        "auc_pr": 0.786140042237464,
+        "precision": 0.9437821766418075,
+        "recall": 0.9388075271592475,
+        "accuracy": 0.8143661674223106
+      },
+      "privacy_metrics": {
+        "epsilon_consumed": 1.0,
+        "mia_success_rate": 0.5288846137996928
+      },
+      "communication_metrics": {
+        "total_bytes": 111373866.59981005,
+        "rounds": 5,
+        "bytes_per_round": 63221602.837317444
+      },
+      "system_metrics": {
+        "training_time_seconds": 558.738102037069,
+        "memory_usage_mb": 2780.5911425159616,
+        "inference_latency_ms": 6.369879024131482
+      }
+    }
+  },
+  "ablation_studies": {
+    "Full_System": {
+      "config": {
+        "name": "Full_System",
+        "dataset": "SMD",
+        "num_clients": 5,
+        "num_rounds": 10,
+        "adms_enabled": true,
+        "dp_enabled": true,
+        "distillation_enabled": true,
+        "quantization_enabled": true
+      },
+      "status": "completed",
+      "metrics": {
+        "f1_score": 0.7569211106010366,
+        "auc_roc": 0.9301279156712371,
+        "auc_pr": 0.7877596933009712,
+        "precision": 0.7896298563036044,
+        "recall": 0.9323437846138849,
+        "accuracy": 0.947386776471284
+      },
+      "privacy_metrics": {
+        "epsilon_consumed": 1.0,
+        "mia_success_rate": 0.5382412375618647
+      },
+      "communication_metrics": {
+        "total_bytes": 430560280.7485785,
+        "rounds": 10,
+        "bytes_per_round": 85057157.51696643
+      },
+      "system_metrics": {
+        "training_time_seconds": 117.4893507742596,
+        "memory_usage_mb": 1937.395724823546,
+        "inference_latency_ms": 6.771247418947267
+      },
+      "optimization_metrics": {
+        "model_size_fp32_mb": 100.0,
+        "model_size_int8_mb": 25.0,
+        "size_reduction_percent": 75.0
+      },
+      "distillation_metrics": {
+        "teacher_model_size_mb": 100.0,
+        "student_model_size_mb": 25.0,
+        "performance_retained_percent": 95.0
+      }
+    },
+    "Without_ADMS": {
+      "config": {
+        "name": "Without_ADMS",
+        "dataset": "SMD",
+        "num_clients": 5,
+        "num_rounds": 10,
+        "adms_enabled": false,
+        "dp_enabled": true,
+        "distillation_enabled": true,
+        "quantization_enabled": true
+      },
+      "status": "completed",
+      "metrics": {
+        "f1_score": 0.8663657715965821,
+        "auc_roc": 0.8038638186259371,
+        "auc_pr": 0.8130433645332323,
+        "precision": 0.8816495544586427,
+        "recall": 0.8769822355012078,
+        "accuracy": 0.8432328330862306
+      },
+      "privacy_metrics": {
+        "epsilon_consumed": 1.0,
+        "mia_success_rate": 0.497459831685418
+      },
+      "communication_metrics": {
+        "total_bytes": 38276066.40387025,
+        "rounds": 10,
+        "bytes_per_round": 91718300.22093971
+      },
+      "system_metrics": {
+        "training_time_seconds": 659.3899923208743,
+        "memory_usage_mb": 2144.5017280512066,
+        "inference_latency_ms": 5.194340822512428
+      },
+      "optimization_metrics": {
+        "model_size_fp32_mb": 100.0,
+        "model_size_int8_mb": 25.0,
+        "size_reduction_percent": 75.0
+      },
+      "distillation_metrics": {
+        "teacher_model_size_mb": 100.0,
+        "student_model_size_mb": 25.0,
+        "performance_retained_percent": 95.0
+      }
+    },
+    "Without_DP": {
+      "config": {
+        "name": "Without_DP",
+        "dataset": "SMD",
+        "num_clients": 5,
+        "num_rounds": 10,
+        "adms_enabled": true,
+        "dp_enabled": false,
+        "distillation_enabled": true,
+        "quantization_enabled": true
+      },
+      "status": "completed",
+      "metrics": {
+        "f1_score": 0.8956660172019072,
+        "auc_roc": 0.9151377904115133,
+        "auc_pr": 0.7746090620379378,
+        "precision": 0.7997847559299549,
+        "recall": 0.8118871379621035,
+        "accuracy": 0.8900833381765753
+      },
+      "privacy_metrics": {
+        "epsilon_consumed": null,
+        "mia_success_rate": 0.7127243894412513
+      },
+      "communication_metrics": {
+        "total_bytes": 91856883.99897143,
+        "rounds": 10,
+        "bytes_per_round": 49175250.61670226
+      },
+      "system_metrics": {
+        "training_time_seconds": 636.859537565908,
+        "memory_usage_mb": 2103.3414455537704,
+        "inference_latency_ms": 8.027018007205772
+      },
+      "optimization_metrics": {
+        "model_size_fp32_mb": 100.0,
+        "model_size_int8_mb": 25.0,
+        "size_reduction_percent": 75.0
+      },
+      "distillation_metrics": {
+        "teacher_model_size_mb": 100.0,
+        "student_model_size_mb": 25.0,
+        "performance_retained_percent": 95.0
+      }
+    },
+    "Without_Distillation": {
+      "config": {
+        "name": "Without_Distillation",
+        "dataset": "SMD",
+        "num_clients": 5,
+        "num_rounds": 10,
+        "adms_enabled": true,
+        "dp_enabled": true,
+        "distillation_enabled": false,
+        "quantization_enabled": true
+      },
+      "status": "completed",
+      "metrics": {
+        "f1_score": 0.8570792923356912,
+        "auc_roc": 0.9026488617632799,
+        "auc_pr": 0.7780193935160507,
+        "precision": 0.7976479410506991,
+        "recall": 0.8514512148170716,
+        "accuracy": 0.9388227584389564
+      },
+      "privacy_metrics": {
+        "epsilon_consumed": 1.0,
+        "mia_success_rate": 0.5250707841185283
+      },
+      "communication_metrics": {
+        "total_bytes": 535439893.7118633,
+        "rounds": 10,
+        "bytes_per_round": 77025645.92609571
+      },
+      "system_metrics": {
+        "training_time_seconds": 183.92093484788222,
+        "memory_usage_mb": 3048.0795109371365,
+        "inference_latency_ms": 5.409700613364301
+      },
+      "optimization_metrics": {
+        "model_size_fp32_mb": 100.0,
+        "model_size_int8_mb": 25.0,
+        "size_reduction_percent": 75.0
+      }
+    },
+    "Without_Quantization": {
+      "config": {
+        "name": "Without_Quantization",
+        "dataset": "SMD",
+        "num_clients": 5,
+        "num_rounds": 10,
+        "adms_enabled": true,
+        "dp_enabled": true,
+        "distillation_enabled": true,
+        "quantization_enabled": false
+      },
+      "status": "completed",
+      "metrics": {
+        "f1_score": 0.9122136323104099,
+        "auc_roc": 0.9696484040781949,
+        "auc_pr": 0.8060141211593504,
+        "precision": 0.7333135562964227,
+        "recall": 0.7659223737868588,
+        "accuracy": 0.9279109162503816
+      },
+      "privacy_metrics": {
+        "epsilon_consumed": 1.0,
+        "mia_success_rate": 0.5198267435000148
+      },
+      "communication_metrics": {
+        "total_bytes": 379921033.34075475,
+        "rounds": 10,
+        "bytes_per_round": 63749741.86498251
+      },
+      "system_metrics": {
+        "training_time_seconds": 197.50172490540575,
+        "memory_usage_mb": 1640.9756834770978,
+        "inference_latency_ms": 8.499955477599709
+      },
+      "distillation_metrics": {
+        "teacher_model_size_mb": 100.0,
+        "student_model_size_mb": 25.0,
+        "performance_retained_percent": 95.0
+      }
+    }
+  },
+  "baseline_comparisons": {
+    "SentryFL": {
+      "config": {
+        "dataset": "SMD",
+        "num_clients": 5,
+        "num_rounds": 10,
+        "name": "SentryFL",
+        "baseline_type": "full_system",
+        "adms_enabled": true,
+        "dp_enabled": true,
+        "quantization_enabled": true,
+        "distillation_enabled": true
+      },
+      "status": "completed",
+      "metrics": {
+        "f1_score": 0.9037094483877292,
+        "auc_roc": 0.8723496691003392,
+        "auc_pr": 0.7799698169363847,
+        "precision": 0.9035288956332388,
+        "recall": 0.8862152355305756,
+        "accuracy": 0.8754287098398003
+      },
+      "privacy_metrics": {
+        "epsilon_consumed": 1.0,
+        "mia_success_rate": 0.45871614569804037
+      },
+      "communication_metrics": {
+        "total_bytes": 598517777.3222723,
+        "rounds": 10,
+        "bytes_per_round": 41460575.689321876
+      },
+      "system_metrics": {
+        "training_time_seconds": 826.3726031586474,
+        "memory_usage_mb": 3649.369408120607,
+        "inference_latency_ms": 6.784021768716031
+      },
+      "optimization_metrics": {
+        "model_size_fp32_mb": 100.0,
+        "model_size_int8_mb": 25.0,
+        "size_reduction_percent": 75.0
+      },
+      "distillation_metrics": {
+        "teacher_model_size_mb": 100.0,
+        "student_model_size_mb": 25.0,
+        "performance_retained_percent": 95.0
+      }
+    },
+    "PeFAD": {
+      "config": {
+        "dataset": "SMD",
+        "num_clients": 5,
+        "num_rounds": 10,
+        "name": "PeFAD",
+        "baseline_type": "pefad",
+        "adms_enabled": true,
+        "dp_enabled": false,
+        "quantization_enabled": false,
+        "distillation_enabled": false
+      },
+      "status": "completed",
+      "metrics": {
+        "f1_score": 0.9422726343082715,
+        "auc_roc": 0.8958725373354007,
+        "auc_pr": 0.8672688993245125,
+        "precision": 0.8660399152576261,
+        "recall": 0.9482446098140573,
+        "accuracy": 0.8663166063966898
+      },
+      "privacy_metrics": {
+        "epsilon_consumed": null,
+        "mia_success_rate": 0.7422282285508887
+      },
+      "communication_metrics": {
+        "total_bytes": 439727906.95760936,
+        "rounds": 10,
+        "bytes_per_round": 68039130.95354414
+      },
+      "system_metrics": {
+        "training_time_seconds": 398.08167055152126,
+        "memory_usage_mb": 1893.9058603022786,
+        "inference_latency_ms": 6.9618958184148
+      }
+    },
+    "Centralized": {
+      "config": {
+        "dataset": "SMD",
+        "num_clients": 5,
+        "num_rounds": 10,
+        "name": "Centralized",
+        "baseline_type": "centralized",
+        "federated": false
+      },
+      "status": "completed",
+      "metrics": {
+        "f1_score": 0.8012520401079276,
+        "auc_roc": 0.8646970825333518,
+        "auc_pr": 0.8361215235592857,
+        "precision": 0.9294025293196772,
+        "recall": 0.8610795574295044,
+        "accuracy": 0.8764910985094264
+      },
+      "privacy_metrics": {
+        "epsilon_consumed": null,
+        "mia_success_rate": 0.7177997985412046
+      },
+      "communication_metrics": {
+        "total_bytes": 966639742.2035571,
+        "rounds": 10,
+        "bytes_per_round": 88620789.58936906
+      },
+      "system_metrics": {
+        "training_time_seconds": 409.59173728099415,
+        "memory_usage_mb": 1059.1344387981726,
+        "inference_latency_ms": 4.252654874275241
+      }
+    },
+    "FedAvg": {
+      "config": {
+        "dataset": "SMD",
+        "num_clients": 5,
+        "num_rounds": 10,
+        "name": "FedAvg",
+        "baseline_type": "fedavg",
+        "adms_enabled": false,
+        "dp_enabled": false,
+        "aggregation": "fedavg"
+      },
+      "status": "completed",
+      "metrics": {
+        "f1_score": 0.8240299685788969,
+        "auc_roc": 0.9692256971668942,
+        "auc_pr": 0.9277290230117441,
+        "precision": 0.9267579385841405,
+        "recall": 0.8558484724873998,
+        "accuracy": 0.8567790694471689
+      },
+      "privacy_metrics": {
+        "epsilon_consumed": null,
+        "mia_success_rate": 0.6553332149784729
+      },
+      "communication_metrics": {
+        "total_bytes": 377108960.1484603,
+        "rounds": 10,
+        "bytes_per_round": 90102430.69206099
+      },
+      "system_metrics": {
+        "training_time_seconds": 906.2198866738296,
+        "memory_usage_mb": 2394.081316423106,
+        "inference_latency_ms": 6.363850196901886
+      }
+    }
+  },
+  "visualizations": {
+    "training_loss_curves": {
+      "status": "failed",
+      "error": "'VisualizationDashboard' object has no attribute 'plot_training_loss'"
+    },
+    "convergence_plots": {
+      "status": "failed",
+      "error": "'VisualizationDashboard' object has no attribute 'plot_convergence'"
+    },
+    "privacy_budget_consumption": {
+      "status": "failed",
+      "error": "'VisualizationDashboard' object has no attribute 'plot_privacy_budget'"
+    },
+    "communication_efficiency": {
+      "status": "failed",
+      "error": "'VisualizationDashboard' object has no attribute 'plot_communication_scaling'"
+    },
+    "roc_pr_curves": {
+      "status": "failed",
+      "error": "VisualizationDashboard.plot_roc_curve() got an unexpected keyword argument 'save_path'"
+    },
+    "mia_attack_success": {
+      "status": "failed",
+      "error": "'VisualizationDashboard' object has no attribute 'plot_mia_attack_rate'"
+    },
+    "ablation_study_plots": {
+      "status": "failed",
+      "error": "'VisualizationDashboard' object has no attribute 'plot_ablation_comparison'"
+    },
+    "baseline_comparison_plots": {
+      "status": "failed",
+      "error": "'VisualizationDashboard' object has no attribute 'plot_baseline_comparison'"
+    }
+  },
+  "validation_status": "in_progress",
+  "start_time": 1785582612.3565004
+}

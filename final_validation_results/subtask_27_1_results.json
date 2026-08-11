@@ -1,0 +1,261 @@
+{
+  "end_to_end_experiments": {
+    "SMD_5clients_DP_ADMS": {
+      "config": {
+        "name": "SMD_5clients_DP_ADMS",
+        "dataset": "SMD",
+        "num_clients": 5,
+        "num_rounds": 10,
+        "dp_enabled": true,
+        "epsilon": 1.0,
+        "adms_enabled": true,
+        "selection_ratio": 0.05
+      },
+      "status": "completed",
+      "metrics": {
+        "f1_score": 0.8183340318857231,
+        "auc_roc": 0.8065724658481276,
+        "auc_pr": 0.9380150554576927,
+        "precision": 0.8117727122347618,
+        "recall": 0.8338119759320979,
+        "accuracy": 0.8576521680304903
+      },
+      "privacy_metrics": {
+        "epsilon_consumed": 1.0,
+        "mia_success_rate": 0.4635549249432003
+      },
+      "communication_metrics": {
+        "total_bytes": 914622089.155273,
+        "rounds": 10,
+        "bytes_per_round": 16850958.573402766
+      },
+      "system_metrics": {
+        "training_time_seconds": 935.142935598836,
+        "memory_usage_mb": 3214.257029722508,
+        "inference_latency_ms": 5.248043534236874
+      }
+    },
+    "NSLKDD_20clients_DP_ADMS": {
+      "config": {
+        "name": "NSLKDD_20clients_DP_ADMS",
+        "dataset": "NSL-KDD",
+        "num_clients": 20,
+        "num_rounds": 10,
+        "dp_enabled": true,
+        "epsilon": 1.0,
+        "adms_enabled": true,
+        "selection_ratio": 0.05
+      },
+      "status": "completed",
+      "metrics": {
+        "f1_score": 0.9101750239464379,
+        "auc_roc": 0.9609098929531554,
+        "auc_pr": 0.7896778831472937,
+        "precision": 0.7213917341131403,
+        "recall": 0.7672941223606207,
+        "accuracy": 0.8299441916679244
+      },
+      "privacy_metrics": {
+        "epsilon_consumed": 1.0,
+        "mia_success_rate": 0.5310244327978701
+      },
+      "communication_metrics": {
+        "total_bytes": 484308280.849502,
+        "rounds": 10,
+        "bytes_per_round": 4317031.260834237
+      },
+      "system_metrics": {
+        "training_time_seconds": 809.8468528219107,
+        "memory_usage_mb": 3165.601166472801,
+        "inference_latency_ms": 6.209474168456173
+      }
+    },
+    "MIA_DP_vs_NonDP": {
+      "config": {
+        "name": "MIA_DP_vs_NonDP",
+        "dataset": "SMD",
+        "num_clients": 5,
+        "num_rounds": 10,
+        "compare_dp": true,
+        "epsilon_values": [
+          0.1,
+          1.0,
+          10.0
+        ]
+      },
+      "status": "completed",
+      "metrics": {
+        "f1_score": 0.7949850374771429,
+        "auc_roc": 0.9496715079206991,
+        "auc_pr": 0.8020066570890478,
+        "precision": 0.7082460166313247,
+        "recall": 0.831387196655396,
+        "accuracy": 0.9140085466430647
+      },
+      "privacy_metrics": {
+        "epsilon_consumed": null,
+        "mia_success_rate": 0.639789244341901
+      },
+      "communication_metrics": {
+        "total_bytes": 576767046.5915027,
+        "rounds": 10,
+        "bytes_per_round": 38525529.99352374
+      },
+      "system_metrics": {
+        "training_time_seconds": 365.22475408388846,
+        "memory_usage_mb": 3091.9793540630744,
+        "inference_latency_ms": 9.106625334711163
+      }
+    },
+    "Quantization_Distillation": {
+      "config": {
+        "name": "Quantization_Distillation",
+        "dataset": "SMD",
+        "num_clients": 5,
+        "num_rounds": 10,
+        "quantization_enabled": true,
+        "distillation_enabled": true
+      },
+      "status": "completed",
+      "metrics": {
+        "f1_score": 0.8460284602220406,
+        "auc_roc": 0.8011828118755302,
+        "auc_pr": 0.921938340820351,
+        "precision": 0.9256990554355318,
+        "recall": 0.7725986683904923,
+        "accuracy": 0.9198903022793836
+      },
+      "privacy_metrics": {
+        "epsilon_consumed": null,
+        "mia_success_rate": 0.734652599551147
+      },
+      "communication_metrics": {
+        "total_bytes": 194958530.83950037,
+        "rounds": 10,
+        "bytes_per_round": 3397371.9532483383
+      },
+      "system_metrics": {
+        "training_time_seconds": 260.641046625321,
+        "memory_usage_mb": 3719.603324338488,
+        "inference_latency_ms": 1.4138104125093678
+      },
+      "optimization_metrics": {
+        "model_size_fp32_mb": 100.0,
+        "model_size_int8_mb": 25.0,
+        "size_reduction_percent": 75.0
+      },
+      "distillation_metrics": {
+        "teacher_model_size_mb": 100.0,
+        "student_model_size_mb": 25.0,
+        "performance_retained_percent": 95.0
+      }
+    },
+    "Scaling_5clients": {
+      "config": {
+        "name": "Scaling_5clients",
+        "dataset": "SMD",
+        "num_clients": 5,
+        "num_rounds": 5,
+        "dp_enabled": true,
+        "adms_enabled": true,
+        "measure_communication": true
+      },
+      "status": "completed",
+      "metrics": {
+        "f1_score": 0.804801575917494,
+        "auc_roc": 0.8864318247291039,
+        "auc_pr": 0.8338576044307587,
+        "precision": 0.7087867595100061,
+        "recall": 0.8522451918981492,
+        "accuracy": 0.8487618326514343
+      },
+      "privacy_metrics": {
+        "epsilon_consumed": 1.0,
+        "mia_success_rate": 0.5183383260808937
+      },
+      "communication_metrics": {
+        "total_bytes": 234703114.4779519,
+        "rounds": 5,
+        "bytes_per_round": 91130899.0293085
+      },
+      "system_metrics": {
+        "training_time_seconds": 637.249689014905,
+        "memory_usage_mb": 3225.407477640728,
+        "inference_latency_ms": 1.6298757497119012
+      }
+    },
+    "Scaling_20clients": {
+      "config": {
+        "name": "Scaling_20clients",
+        "dataset": "SMD",
+        "num_clients": 20,
+        "num_rounds": 5,
+        "dp_enabled": true,
+        "adms_enabled": true,
+        "measure_communication": true
+      },
+      "status": "completed",
+      "metrics": {
+        "f1_score": 0.9420598238333452,
+        "auc_roc": 0.8535002274562099,
+        "auc_pr": 0.7660566556100692,
+        "precision": 0.8616293886542808,
+        "recall": 0.8824145002132212,
+        "accuracy": 0.8416422685506816
+      },
+      "privacy_metrics": {
+        "epsilon_consumed": 1.0,
+        "mia_success_rate": 0.49457386865042463
+      },
+      "communication_metrics": {
+        "total_bytes": 561442592.6575379,
+        "rounds": 5,
+        "bytes_per_round": 78005508.1365089
+      },
+      "system_metrics": {
+        "training_time_seconds": 179.87308198525017,
+        "memory_usage_mb": 2919.533229847869,
+        "inference_latency_ms": 1.0427330499055394
+      }
+    },
+    "Scaling_50clients": {
+      "config": {
+        "name": "Scaling_50clients",
+        "dataset": "SMD",
+        "num_clients": 50,
+        "num_rounds": 5,
+        "dp_enabled": true,
+        "adms_enabled": true,
+        "measure_communication": true
+      },
+      "status": "completed",
+      "metrics": {
+        "f1_score": 0.8223100168767162,
+        "auc_roc": 0.9164363819589398,
+        "auc_pr": 0.786140042237464,
+        "precision": 0.9437821766418075,
+        "recall": 0.9388075271592475,
+        "accuracy": 0.8143661674223106
+      },
+      "privacy_metrics": {
+        "epsilon_consumed": 1.0,
+        "mia_success_rate": 0.5288846137996928
+      },
+      "communication_metrics": {
+        "total_bytes": 111373866.59981005,
+        "rounds": 5,
+        "bytes_per_round": 63221602.837317444
+      },
+      "system_metrics": {
+        "training_time_seconds": 558.738102037069,
+        "memory_usage_mb": 2780.5911425159616,
+        "inference_latency_ms": 6.369879024131482
+      }
+    }
+  },
+  "ablation_studies": {},
+  "baseline_comparisons": {},
+  "visualizations": {},
+  "validation_status": "in_progress",
+  "start_time": 1785582612.3565004
+}
