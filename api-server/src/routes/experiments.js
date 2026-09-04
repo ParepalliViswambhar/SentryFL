@@ -1267,6 +1267,79 @@ router.get(
 );
 
 /**
+ * GET /api/experiments/:id/report
+ * Generate PDF report for an experiment
+ * Requirements: 39.10, 38.4
+ * Requires authorization: owner or admin only
+ */
+router.get(
+  '/:id/report',
+  authenticate, // Require authentication
+  validateParams(experimentIdSchema),
+  asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    const user = req.user;
+
+    // Get experiment to check ownership
+    const cacheKey = `experiment:${id}`;
+    let experiment = experimentCache.get(cacheKey);
+
+    if (!experiment) {
+      try {
+        const response = await axiosClient.get(`/train/${id}/status`);
+        experiment = {
+          experiment_id: id,
+          ...response.data,
+        };
+      } catch (error) {
+        if (error.response && error.response.status === 404) {
+          throw new AppError('Experiment not found', 404, { experiment_id: id });
+        }
+        throw error;
+      }
+    }
+
+    // Check authorization: owner or admin only (Requirement 38.4)
+    if (!hasExperimentAccess(user, experiment)) {
+      throw new AppError('Access denied: You do not have permission to access this experiment report', 403, {
+        experiment_id: id,
+      });
+    }
+
+    try {
+      // Request PDF report from Python Backend
+      const response = await axiosClient.get(`/train/${id}/report`, {
+        responseType: 'arraybuffer', // Important for binary data
+        headers: {
+          'Accept': 'application/pdf',
+        },
+      });
+
+      // Set response headers for PDF download
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `attachment; filename="experiment-${id}-report.pdf"`);
+      res.setHeader('Content-Length', response.data.length);
+
+      // Send PDF data
+      res.send(response.data);
+    } catch (error) {
+      // Handle 404 from Python backend
+      if (error.response && error.response.status === 404) {
+        throw new AppError('Experiment report not available', 404, { experiment_id: id });
+      }
+      // Handle other errors
+      if (error.response && error.response.status === 500) {
+        throw new AppError('Failed to generate report', 500, { 
+          experiment_id: id,
+          error: error.message 
+        });
+      }
+      throw error;
+    }
+  })
+);
+
+/**
  * POST /api/experiments/:id/callback
  * Callback endpoint for Python backend to send updates
  * (Internal use only - called by Python backend)

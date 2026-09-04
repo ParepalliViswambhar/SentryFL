@@ -8,10 +8,15 @@ export default defineConfig({
     environment: 'jsdom',
     setupFiles: './src/test/setup.js',
     css: false, // Disable CSS processing to avoid ESM issues
-    server: {
-      deps: {
-        inline: ['@mui/material', '@emotion/react', '@emotion/styled'],
-      },
+    pool: 'forks',
+    fileParallelism: false,
+    deps: {
+      inline: [
+        /@mui\//,
+        /@emotion\//,
+        /@csstools\//,
+        /@asamuzakjp\//,
+      ],
     },
   },
 });

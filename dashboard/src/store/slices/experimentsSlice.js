@@ -242,6 +242,10 @@ const experimentsSlice = createSlice({
         state.status = 'succeeded';
         state.list = action.payload;
       })
+      .addCase('experiments/fetchExperiments/fulfilled', (state, action) => {
+        state.status = 'succeeded';
+        state.list = action.payload;
+      })
       .addCase(fetchExperiments.rejected, (state, action) => {
         state.status = 'failed';
         state.error = action.payload;

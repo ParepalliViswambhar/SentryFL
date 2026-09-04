@@ -13,6 +13,8 @@ import { configureStore } from '@reduxjs/toolkit';
 import experimentsReducer from './slices/experimentsSlice';
 import metricsReducer from './slices/metricsSlice';
 import authReducer from './slices/authSlice';
+import notificationsReducer from './slices/notificationsSlice';
+import privacyBudgetMonitor from './middleware/privacyBudgetMonitor';
 
 /**
  * Redux store instance with middleware and DevTools support
@@ -25,6 +27,7 @@ const store = configureStore({
     experiments: experimentsReducer,
     metrics: metricsReducer,
     auth: authReducer,
+    notifications: notificationsReducer,
   },
   // Enable Redux DevTools in development
   devTools: import.meta.env.DEV,
@@ -35,7 +38,7 @@ const store = configureStore({
         // Ignore these action types for serializability checks
         ignoredActions: ['metrics/addMetricUpdate'],
       },
-    }),
+    }).concat(privacyBudgetMonitor),
 });
 
 export default store;

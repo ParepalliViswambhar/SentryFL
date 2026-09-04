@@ -15,6 +15,27 @@ class WebSocketServer {
       },
       pingTimeout: parseInt(process.env.WS_HEARTBEAT_TIMEOUT) || 5000,
       pingInterval: parseInt(process.env.WS_HEARTBEAT_INTERVAL) || 30000,
+      // Enable permessage-deflate compression (Requirement 37.9)
+      // This compresses WebSocket messages using zlib/gzip to reduce bandwidth
+      perMessageDeflate: {
+        threshold: 1024, // Only compress messages > 1KB
+        zlibDeflateOptions: {
+          chunkSize: 8 * 1024, // 8KB chunks
+          level: 6, // Compression level 1-9 (6 is balanced)
+        },
+        zlibInflateOptions: {
+          chunkSize: 10 * 1024, // 10KB chunks
+        },
+        clientNoContextTakeover: true, // Reset compression context after each message
+        serverNoContextTakeover: true,
+        serverMaxWindowBits: 10, // Max LZ77 sliding window size
+        clientMaxWindowBits: 10,
+        concurrencyLimit: 10, // Number of concurrent compression operations
+      },
+      // Additional performance optimizations
+      transports: ['websocket', 'polling'], // Prefer WebSocket over polling
+      allowUpgrades: true, // Allow transport upgrades
+      upgradeTimeout: 10000, // 10s timeout for upgrades
     });
 
     // Event buffer for reconnecting clients (store last 50 events per experiment)

@@ -7,6 +7,8 @@
 
 import { useState } from 'react';
 import { Outlet, Link, useNavigate, useLocation } from 'react-router-dom';
+import { useSelector, useDispatch } from 'react-redux';
+import { selectCurrentUser, logout } from '../store/slices/authSlice';
 import {
   Box,
   Drawer,
@@ -25,6 +27,7 @@ import {
   MenuItem,
   useMediaQuery,
   useTheme,
+  Badge,
 } from '@mui/material';
 import {
   Menu as MenuIcon,
@@ -35,7 +38,9 @@ import {
   Settings as SettingsIcon,
   Logout as LogoutIcon,
   AccountCircle as AccountIcon,
+  Notifications as NotificationsIcon,
 } from '@mui/icons-material';
+import NotificationHistory from './NotificationHistory';
 
 const drawerWidth = 260;
 
@@ -52,10 +57,18 @@ const Layout = () => {
   const theme = useTheme();
   const navigate = useNavigate();
   const location = useLocation();
+  const dispatch = useDispatch();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
+  
+  // Get current user from Redux store
+  const currentUser = useSelector(selectCurrentUser);
+  
+  // Get notification count for badge
+  const notificationCount = useSelector((state) => state.notifications.notifications.length);
   
   const [mobileOpen, setMobileOpen] = useState(false);
   const [anchorEl, setAnchorEl] = useState(null);
+  const [notificationHistoryOpen, setNotificationHistoryOpen] = useState(false);
   
   // User menu handlers
   const handleUserMenuOpen = (event) => {
@@ -66,8 +79,9 @@ const Layout = () => {
     setAnchorEl(null);
   };
   
-  const handleLogout = () => {
-    localStorage.removeItem('authToken');
+  const handleLogout = async () => {
+    // Dispatch Redux logout action
+    await dispatch(logout());
     handleUserMenuClose();
     navigate('/login');
   };
@@ -160,7 +174,23 @@ const Layout = () => {
           </Typography>
           
           {/* User menu */}
-          <Box>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            {/* Notification History Button */}
+            <IconButton
+              color="inherit"
+              onClick={() => setNotificationHistoryOpen(true)}
+              aria-label="notification history"
+            >
+              <Badge badgeContent={notificationCount} color="error">
+                <NotificationsIcon />
+              </Badge>
+            </IconButton>
+            
+            {currentUser && (
+              <Typography variant="body2" sx={{ display: { xs: 'none', sm: 'block' } }}>
+                {currentUser.username || currentUser.email}
+              </Typography>
+            )}
             <IconButton
               size="large"
               aria-label="account of current user"
@@ -170,7 +200,7 @@ const Layout = () => {
               color="inherit"
             >
               <Avatar sx={{ width: 32, height: 32, bgcolor: theme.palette.secondary.main }}>
-                <AccountIcon />
+                {currentUser?.username ? currentUser.username.charAt(0).toUpperCase() : <AccountIcon />}
               </Avatar>
             </IconButton>
             <Menu
@@ -189,9 +219,21 @@ const Layout = () => {
               onClose={handleUserMenuClose}
             >
               <MenuItem disabled>
-                <Typography variant="body2" color="text.secondary">
-                  User Account
-                </Typography>
+                <Box>
+                  <Typography variant="body2" fontWeight="bold">
+                    {currentUser?.username || 'User'}
+                  </Typography>
+                  {currentUser?.email && (
+                    <Typography variant="caption" color="text.secondary">
+                      {currentUser.email}
+                    </Typography>
+                  )}
+                  {currentUser?.role && (
+                    <Typography variant="caption" color="text.secondary" display="block">
+                      Role: {currentUser.role}
+                    </Typography>
+                  )}
+                </Box>
               </MenuItem>
               <Divider />
               <MenuItem onClick={handleLogout}>
@@ -259,6 +301,12 @@ const Layout = () => {
         <Toolbar /> {/* Spacer for fixed AppBar */}
         <Outlet /> {/* Renders the current route's component */}
       </Box>
+      
+      {/* Notification History Drawer */}
+      <NotificationHistory
+        open={notificationHistoryOpen}
+        onClose={() => setNotificationHistoryOpen(false)}
+      />
     </Box>
   );
 };

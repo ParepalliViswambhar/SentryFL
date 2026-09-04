@@ -6,6 +6,7 @@
 
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useDispatch } from 'react-redux';
 import {
   Box,
   Paper,
@@ -16,41 +17,71 @@ import {
   Alert,
 } from '@mui/material';
 import { LockOutlined as LockIcon } from '@mui/icons-material';
-import apiClient from '../api/client';
+import { login } from '../store/slices/authSlice';
 
 const Login = () => {
   const navigate = useNavigate();
+  const dispatch = useDispatch();
   const [credentials, setCredentials] = useState({
     username: '',
     password: '',
   });
   const [error, setError] = useState('');
+  const [fieldErrors, setFieldErrors] = useState({});
   const [loading, setLoading] = useState(false);
+  
+  const validateForm = () => {
+    const errors = {};
+    
+    // Username validation
+    if (!credentials.username.trim()) {
+      errors.username = 'Username is required';
+    } else if (credentials.username.length < 3) {
+      errors.username = 'Username must be at least 3 characters';
+    }
+    
+    // Password validation
+    if (!credentials.password) {
+      errors.password = 'Password is required';
+    } else if (credentials.password.length < 6) {
+      errors.password = 'Password must be at least 6 characters';
+    }
+    
+    setFieldErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
   
   const handleChange = (e) => {
     setCredentials({
       ...credentials,
       [e.target.name]: e.target.value,
     });
+    // Clear field-specific error when user types
+    if (fieldErrors[e.target.name]) {
+      setFieldErrors({
+        ...fieldErrors,
+        [e.target.name]: '',
+      });
+    }
     setError('');
   };
   
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
+    
+    // Validate form before submission
+    if (!validateForm()) {
+      return;
+    }
+    
     setLoading(true);
     
     try {
-      // Call login API
-      const response = await apiClient.post('/auth/login', credentials);
-      
-      // Store token
-      localStorage.setItem('authToken', response.data.token);
-      
-      // Navigate to dashboard
+      await dispatch(login(credentials)).unwrap();
       navigate('/', { replace: true });
     } catch (err) {
-      setError(err.response?.data?.message || 'Login failed. Please try again.');
+      setError(typeof err === 'string' ? err : err.message || 'Login failed. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -108,6 +139,8 @@ const Login = () => {
               required
               autoFocus
               disabled={loading}
+              error={Boolean(fieldErrors.username)}
+              helperText={fieldErrors.username}
             />
             
             <TextField
@@ -120,6 +153,8 @@ const Login = () => {
               margin="normal"
               required
               disabled={loading}
+              error={Boolean(fieldErrors.password)}
+              helperText={fieldErrors.password}
             />
             
             <Button

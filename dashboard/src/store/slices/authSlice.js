@@ -11,9 +11,7 @@
  */
 
 import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
-import axios from 'axios';
-
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+import apiClient from '../../api/client';
 
 /**
  * @typedef {Object} User
@@ -76,18 +74,15 @@ export const login = createAsyncThunk(
   'auth/login',
   async (credentials, { rejectWithValue }) => {
     try {
-      const response = await axios.post(`${API_BASE_URL}/api/auth/login`, credentials);
+      const response = await apiClient.post('/auth/login', credentials);
       const { token, user } = response.data;
       
       // Save token to localStorage
       saveTokenToStorage(token);
       
-      // Set default Authorization header for future requests
-      axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-      
       return { token, user };
     } catch (error) {
-      return rejectWithValue(error.response?.data || error.message);
+      return rejectWithValue(error.response?.data?.message || error.message);
     }
   }
 );
@@ -108,18 +103,15 @@ export const register = createAsyncThunk(
   'auth/register',
   async (userData, { rejectWithValue }) => {
     try {
-      const response = await axios.post(`${API_BASE_URL}/api/auth/register`, userData);
+      const response = await apiClient.post('/auth/register', userData);
       const { token, user } = response.data;
       
       // Save token to localStorage
       saveTokenToStorage(token);
       
-      // Set default Authorization header for future requests
-      axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-      
       return { token, user };
     } catch (error) {
-      return rejectWithValue(error.response?.data || error.message);
+      return rejectWithValue(error.response?.data?.message || error.message);
     }
   }
 );
@@ -142,18 +134,14 @@ export const verifyToken = createAsyncThunk(
         return rejectWithValue('No token found');
       }
       
-      // Set Authorization header
-      axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-      
       // Verify token with backend
-      const response = await axios.get(`${API_BASE_URL}/api/auth/me`);
       
-      return { token, user: response.data };
+      const response = await apiClient.get('/auth/me');
+      return { token, user: response.data.user };
     } catch (error) {
       // Remove invalid token
       removeTokenFromStorage();
-      delete axios.defaults.headers.common['Authorization'];
-      return rejectWithValue(error.response?.data || error.message);
+      return rejectWithValue(error.response?.data?.message || error.message);
     }
   }
 );
@@ -175,15 +163,11 @@ export const logout = createAsyncThunk(
       // Remove token from storage
       removeTokenFromStorage();
       
-      // Remove Authorization header
-      delete axios.defaults.headers.common['Authorization'];
-      
       return;
     } catch (error) {
       // Still logout locally even if API call fails
       removeTokenFromStorage();
-      delete axios.defaults.headers.common['Authorization'];
-      return rejectWithValue(error.response?.data || error.message);
+      return rejectWithValue(error.response?.data?.message || error.message);
     }
   }
 );

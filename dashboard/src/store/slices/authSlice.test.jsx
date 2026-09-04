@@ -8,7 +8,20 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import authReducer, {
   clearError,
   updateUser,
+  login,
+  logout,
+  selectAuthToken,
+  selectCurrentUser,
+  selectIsAuthenticated,
+  selectAuthStatus,
+  selectAuthError,
+  selectIsAdmin,
 } from './authSlice';
+import { configureStore } from '@reduxjs/toolkit';
+import axios from 'axios';
+
+// Mock axios
+vi.mock('axios');
 
 describe('authSlice', () => {
   // Mock localStorage
@@ -20,6 +33,7 @@ describe('authSlice', () => {
       clear: vi.fn(),
     };
     global.localStorage = localStorageMock;
+    vi.clearAllMocks();
   });
 
   const initialState = {
@@ -235,37 +249,30 @@ describe('authSlice', () => {
     };
 
     it('should select auth token', () => {
-      const { selectAuthToken } = require('./authSlice');
       expect(selectAuthToken(mockState)).toBe('test-token');
     });
 
     it('should select current user', () => {
-      const { selectCurrentUser } = require('./authSlice');
       expect(selectCurrentUser(mockState)).toEqual(mockState.auth.user);
     });
 
     it('should select isAuthenticated', () => {
-      const { selectIsAuthenticated } = require('./authSlice');
       expect(selectIsAuthenticated(mockState)).toBe(true);
     });
 
     it('should select auth status', () => {
-      const { selectAuthStatus } = require('./authSlice');
       expect(selectAuthStatus(mockState)).toBe('succeeded');
     });
 
     it('should select auth error', () => {
-      const { selectAuthError } = require('./authSlice');
       expect(selectAuthError(mockState)).toBeNull();
     });
 
     it('should select isAdmin', () => {
-      const { selectIsAdmin } = require('./authSlice');
       expect(selectIsAdmin(mockState)).toBe(true);
     });
 
     it('should return false for isAdmin when user is not admin', () => {
-      const { selectIsAdmin } = require('./authSlice');
       const userState = {
         auth: {
           ...mockState.auth,
@@ -276,7 +283,6 @@ describe('authSlice', () => {
     });
 
     it('should return undefined for isAdmin when no user', () => {
-      const { selectIsAdmin } = require('./authSlice');
       const noUserState = {
         auth: {
           ...mockState.auth,
@@ -284,6 +290,106 @@ describe('authSlice', () => {
         },
       };
       expect(selectIsAdmin(noUserState)).toBeUndefined();
+    });
+  });
+
+  describe('Async Thunks Integration', () => {
+    let store;
+
+    beforeEach(() => {
+      store = configureStore({
+        reducer: {
+          auth: authReducer,
+        },
+      });
+      
+      // Reset axios mocks
+      axios.post = vi.fn();
+      axios.get = vi.fn();
+      axios.defaults = { headers: { common: {} } };
+    });
+
+    it('should handle successful login flow', async () => {
+      const mockCredentials = {
+        email: 'test@example.com',
+        password: 'password123',
+      };
+      
+      const mockResponse = {
+        data: {
+          token: 'test-token',
+          user: {
+            id: '1',
+            email: 'test@example.com',
+            username: 'testuser',
+            role: 'user',
+          },
+        },
+      };
+
+      axios.post.mockResolvedValueOnce(mockResponse);
+
+      await store.dispatch(login(mockCredentials));
+
+      const state = store.getState().auth;
+      
+      expect(state.status).toBe('succeeded');
+      expect(state.token).toBe('test-token');
+      expect(state.user).toEqual(mockResponse.data.user);
+      expect(state.isAuthenticated).toBe(true);
+      expect(state.error).toBeNull();
+      
+      // Check localStorage was called
+      expect(localStorage.setItem).toHaveBeenCalledWith('authToken', 'test-token');
+    });
+
+    it('should handle login failure', async () => {
+      const mockCredentials = {
+        email: 'test@example.com',
+        password: 'wrongpassword',
+      };
+
+      const errorMessage = 'Invalid credentials';
+      axios.post.mockRejectedValueOnce({
+        response: {
+          data: errorMessage,
+        },
+      });
+
+      await store.dispatch(login(mockCredentials));
+
+      const state = store.getState().auth;
+      
+      expect(state.status).toBe('failed');
+      expect(state.token).toBeNull();
+      expect(state.user).toBeNull();
+      expect(state.isAuthenticated).toBe(false);
+      expect(state.error).toBe(errorMessage);
+    });
+
+    it('should handle logout and clear state', async () => {
+      // First login
+      const mockResponse = {
+        data: {
+          token: 'test-token',
+          user: { id: '1', email: 'test@example.com' },
+        },
+      };
+      axios.post.mockResolvedValueOnce(mockResponse);
+      await store.dispatch(login({ email: 'test@example.com', password: 'pass' }));
+
+      // Then logout
+      await store.dispatch(logout());
+
+      const state = store.getState().auth;
+      
+      expect(state.status).toBe('idle');
+      expect(state.token).toBeNull();
+      expect(state.user).toBeNull();
+      expect(state.isAuthenticated).toBe(false);
+      
+      // Check localStorage was cleared
+      expect(localStorage.removeItem).toHaveBeenCalledWith('authToken');
     });
   });
 });

@@ -10,6 +10,11 @@ import experimentsReducer, {
   clearCurrentExperiment,
   updateExperimentStatus,
   clearError,
+  selectAllExperiments,
+  selectCurrentExperiment,
+  selectRunningExperiments,
+  selectExperimentsStatus,
+  selectExperimentsError,
 } from './experimentsSlice';
 
 describe('experimentsSlice', () => {
@@ -119,29 +124,24 @@ describe('experimentsSlice', () => {
     };
 
     it('should select all experiments', () => {
-      const { selectAllExperiments } = require('./experimentsSlice');
       expect(selectAllExperiments(mockState)).toEqual(mockState.experiments.list);
     });
 
     it('should select current experiment', () => {
-      const { selectCurrentExperiment } = require('./experimentsSlice');
       expect(selectCurrentExperiment(mockState)).toEqual(mockState.experiments.current);
     });
 
     it('should select running experiments', () => {
-      const { selectRunningExperiments } = require('./experimentsSlice');
       const running = selectRunningExperiments(mockState);
       expect(running).toHaveLength(2);
       expect(running.every(exp => exp.status === 'running')).toBe(true);
     });
 
     it('should select status', () => {
-      const { selectExperimentsStatus } = require('./experimentsSlice');
       expect(selectExperimentsStatus(mockState)).toBe('succeeded');
     });
 
     it('should select error', () => {
-      const { selectExperimentsError } = require('./experimentsSlice');
       expect(selectExperimentsError(mockState)).toBeNull();
     });
   });

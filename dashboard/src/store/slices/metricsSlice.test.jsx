@@ -13,6 +13,11 @@ import metricsReducer, {
   clearExperimentMetrics,
   clearAllMetrics,
   clearError,
+  selectTrainingMetrics,
+  selectPrivacyMetrics,
+  selectCommunicationMetrics,
+  selectLatestTrainingMetric,
+  selectLatestPrivacyMetric,
 } from './metricsSlice';
 
 describe('metricsSlice', () => {
@@ -220,48 +225,41 @@ describe('metricsSlice', () => {
     };
 
     it('should select training metrics for experiment', () => {
-      const { selectTrainingMetrics } = require('./metricsSlice');
       const metrics = selectTrainingMetrics('exp-1')(mockState);
       expect(metrics).toHaveLength(2);
       expect(metrics[0].round).toBe(1);
     });
 
     it('should select privacy metrics for experiment', () => {
-      const { selectPrivacyMetrics } = require('./metricsSlice');
       const metrics = selectPrivacyMetrics('exp-1')(mockState);
       expect(metrics).toHaveLength(2);
       expect(metrics[0].round).toBe(1);
     });
 
     it('should select communication metrics for experiment', () => {
-      const { selectCommunicationMetrics } = require('./metricsSlice');
       const metrics = selectCommunicationMetrics('exp-1')(mockState);
       expect(metrics).toHaveLength(2);
       expect(metrics[0].round).toBe(1);
     });
 
     it('should select latest training metric', () => {
-      const { selectLatestTrainingMetric } = require('./metricsSlice');
       const metric = selectLatestTrainingMetric('exp-1')(mockState);
       expect(metric.round).toBe(2);
       expect(metric.loss).toBe(0.4);
     });
 
     it('should select latest privacy metric', () => {
-      const { selectLatestPrivacyMetric } = require('./metricsSlice');
       const metric = selectLatestPrivacyMetric('exp-1')(mockState);
       expect(metric.round).toBe(2);
       expect(metric.epsilon).toBe(1.0);
     });
 
     it('should return empty array for non-existent experiment', () => {
-      const { selectTrainingMetrics } = require('./metricsSlice');
       const metrics = selectTrainingMetrics('exp-999')(mockState);
       expect(metrics).toEqual([]);
     });
 
     it('should return null for latest metric when no metrics exist', () => {
-      const { selectLatestTrainingMetric } = require('./metricsSlice');
       const metric = selectLatestTrainingMetric('exp-999')(mockState);
       expect(metric).toBeNull();
     });

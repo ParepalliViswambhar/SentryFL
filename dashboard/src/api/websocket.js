@@ -12,7 +12,7 @@ let socket = null;
  * Initialize WebSocket connection
  * @returns {Socket} Socket.io client instance
  */
-export const initializeWebSocket = () => {
+export const initializeWebSocket = ({ token } = {}) => {
   if (socket && socket.connected) {
     return socket;
   }
@@ -21,6 +21,8 @@ export const initializeWebSocket = () => {
   
   socket = io(wsUrl, {
     transports: ['websocket', 'polling'],
+    perMessageDeflate: true,
+    auth: token ? { token } : undefined,
     reconnection: true,
     reconnectionDelay: 1000,
     reconnectionDelayMax: 5000,

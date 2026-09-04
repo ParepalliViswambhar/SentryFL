@@ -4,7 +4,8 @@
  * Authentication guard that redirects to login if no auth token is present
  */
 
-import { Navigate } from 'react-router-dom';
+import { Navigate, useLocation } from 'react-router-dom';
+import { isTokenExpired } from '../utils/tokenUtils';
 
 /**
  * PrivateRoute wrapper component
@@ -15,12 +16,16 @@ import { Navigate } from 'react-router-dom';
  * @returns {React.ReactNode} - Children if authenticated, otherwise Navigate to login
  */
 const PrivateRoute = ({ children }) => {
-  // Check for authentication token in localStorage
+  const location = useLocation();
   const authToken = localStorage.getItem('authToken');
+  const tokenIsExpired = authToken?.split('.').length === 3 && isTokenExpired(authToken);
+
+  if (tokenIsExpired) {
+    localStorage.removeItem('authToken');
+  }
   
-  // If no token, redirect to login page
-  if (!authToken) {
-    return <Navigate to="/login" replace />;
+  if (!authToken || tokenIsExpired) {
+    return <Navigate to="/login" state={{ from: location }} replace />;
   }
   
   // If authenticated, render children

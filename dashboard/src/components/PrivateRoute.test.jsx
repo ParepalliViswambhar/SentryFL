@@ -164,6 +164,8 @@ describe('PrivateRoute Component', () => {
   });
 
   it('preserves original path for redirect after login', () => {
+    window.history.replaceState({}, '', '/protected-page');
+
     render(
       <BrowserRouter>
         <Routes>
