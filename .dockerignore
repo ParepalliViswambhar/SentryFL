@@ -1,0 +1,16 @@
+.git
+.gitignore
+.venv
+__pycache__
+*.pyc
+.pytest_cache
+node_modules
+dashboard/node_modules
+dashboard/dist
+api-server/node_modules
+*.log
+evaluation_results
+final_validation_results
+mia_evaluation_results
+visualization_results
+test_output

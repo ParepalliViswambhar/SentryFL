@@ -1,0 +1,65 @@
+# Example SentryFL Configuration File
+# This demonstrates the nested configuration structure with all supported sections
+
+experiment:
+  name: "smd_privacy_experiment"
+  output_dir: "./experiments/smd_dp"
+  checkpoint_interval: 10
+  log_interval: 1
+  seed: 42
+
+data:
+  dataset: "SMD"  # Options: "SMD", "NSL-KDD"
+  window_size: 100
+  stride: 1
+  normalize: true
+  train_ratio: 0.7
+  val_ratio: 0.15
+
+model:
+  backbone: "bert-base-uncased"
+  hidden_dim: 768
+  freeze_backbone: true
+  dropout: 0.1
+
+training:
+  num_rounds: 100
+  local_epochs: 5
+  batch_size: 32
+  learning_rate: 0.001
+  optimizer: "adam"  # Options: "adam", "sgd", "adamw"
+  weight_decay: 0.0001
+  gradient_accumulation_steps: 1
+
+federated:
+  num_clients: 10
+  clients_per_round: 5
+  partition_strategy: "iid"  # Options: "iid", "non_iid"
+  aggregation: "fedavg"  # Options: "fedavg", "trimmed_mean"
+  byzantine_robust: false
+  trimmed_mean_fraction: 0.1
+
+privacy:
+  enabled: true
+  epsilon: 1.0  # Must be > 0
+  delta: 1e-5  # Must be in (0, 1)
+  max_grad_norm: 1.0  # Must be > 0
+  noise_multiplier: null  # Auto-computed if null
+
+parameter_efficiency:
+  adms_enabled: true
+  selection_ratio: 0.05  # 5% of parameters
+  ppds_enabled: false
+
+optimization:
+  quantization_enabled: false
+  quantization_dtype: "int8"
+  knowledge_distillation_enabled: false
+  distillation_temperature: 3.0
+  distillation_alpha: 0.5
+
+evaluation:
+  metrics: ["f1", "auc_roc", "auc_pr", "precision", "recall"]
+  anomaly_threshold: 0.5
+  save_predictions: true
+  save_plots: true

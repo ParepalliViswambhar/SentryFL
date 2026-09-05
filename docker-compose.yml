@@ -1,0 +1,130 @@
+services:
+  python-backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      PYTHONUNBUFFERED: '1'
+      DATABASE_URL: postgresql://${POSTGRES_USER:-sentryfl}:${POSTGRES_PASSWORD:-sentryfl}@postgres:5432/${POSTGRES_DB:-sentryfl}
+      REDIS_URL: redis://redis:6379/0
+    healthcheck:
+      test: ["CMD", "python", "-c", "from urllib.request import urlopen; urlopen('http://localhost:5000/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+    expose:
+      - '5000'
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks: [sentryfl]
+
+  api-server:
+    build:
+      context: ./api-server
+    environment:
+      NODE_ENV: production
+      PORT: '3000'
+      PYTHON_BACKEND_URL: http://python-backend:5000
+      BACKEND_TIMEOUT_MS: ${BACKEND_TIMEOUT_MS:-30000}
+      CORS_ORIGIN: ${CORS_ORIGIN:-https://localhost}
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env for deployment}
+      API_SERVER_URL: http://api-server:3000
+      CACHE_TTL_SECONDS: ${CACHE_TTL_SECONDS:-300}
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3000/health').then(r => { if (!r.ok) process.exit(1); }).catch(() => process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+    expose:
+      - '3000'
+    depends_on:
+      python-backend:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks: [sentryfl]
+
+  dashboard:
+    build:
+      context: ./dashboard
+      args:
+        VITE_API_BASE_URL: /api
+        VITE_WS_URL: /
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "--quiet", "http://localhost/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    expose:
+      - '80'
+    depends_on:
+      api-server:
+        condition: service_healthy
+    networks: [sentryfl]
+
+  postgres:
+    build:
+      context: ./docker/postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-sentryfl}
+      POSTGRES_USER: ${POSTGRES_USER:-sentryfl}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-sentryfl}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    expose:
+      - '5432'
+    networks: [sentryfl]
+
+  redis:
+    build:
+      context: ./docker/redis
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - redis-data:/data
+    expose:
+      - '6379'
+    networks: [sentryfl]
+
+  nginx:
+    build:
+      context: ./docker/nginx
+    ports:
+      - '${HTTP_PORT:-80}:80'
+      - '${HTTPS_PORT:-443}:443'
+    volumes:
+      - nginx-certs:/etc/nginx/certs
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "--quiet", "http://localhost/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    depends_on:
+      dashboard:
+        condition: service_healthy
+      api-server:
+        condition: service_healthy
+    networks: [sentryfl]
+
+volumes:
+  postgres-data:
+  redis-data:
+  nginx-certs:
+
+networks:
+  sentryfl:
+    driver: bridge
