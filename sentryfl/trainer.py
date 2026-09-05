@@ -17,7 +17,7 @@ import logging
 import torch
 import torch.nn as nn
 from torch.utils.data import TensorDataset, DataLoader
-from typing import Dict, List, Tuple, Optional, Any
+from typing import Callable, Dict, List, Tuple, Optional, Any
 from pathlib import Path
 import numpy as np
 
@@ -73,13 +73,17 @@ class MainTrainer:
         config: ConfigurationSystem,
         model: nn.Module,
         data_path: str,
-        device: str = 'cpu'
+        device: str = 'cpu',
+        on_round_metrics: Optional[Callable[[int, Dict[str, Any]], None]] = None,
+        stop_event: Optional[Any] = None
     ):
         """Initialize MainTrainer with configuration and model."""
         self.config = config
         self.model = model
         self.data_path = data_path
         self.device = device
+        self.on_round_metrics = on_round_metrics
+        self.stop_event = stop_event
         self.model.to(device)
         
         # GPU memory check with CPU fallback (Requirement 18.7)
@@ -430,6 +434,8 @@ class MainTrainer:
         clients_per_round = self.federated_config['clients_per_round']
         
         for round_num in range(1, num_rounds + 1):
+            if self.stop_event is not None and self.stop_event.is_set():
+                break
             self.current_round = round_num
             logger.info(f"\n{'=' * 80}")
             logger.info(f"ROUND {round_num}/{num_rounds}")
@@ -495,6 +501,8 @@ class MainTrainer:
                 loss=avg_loss,
                 **agg_stats
             )
+            if self.on_round_metrics is not None:
+                self.on_round_metrics(round_num, self.experiment_logger.get_all_metrics())
             
             # 7. Check privacy budget exhaustion
             if self.privacy_config['enabled']:

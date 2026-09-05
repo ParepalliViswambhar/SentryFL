@@ -13,6 +13,30 @@ import apiClient from '../api/client';
 
 const defaultConfig = { experiment: { name: '', seed: 42 }, data: { dataset: 'SMD', window_size: 100, stride: 1 }, model: { backbone: 'bert-base-uncased', hidden_dim: 768, dropout: 0.1 }, training: { num_rounds: 100, local_epochs: 5, batch_size: 32, learning_rate: 0.001 }, federated: { num_clients: 10, clients_per_round: 5, partition_strategy: 'iid', aggregation: 'fedavg' }, privacy: { enabled: true, epsilon: 1, delta: 0.00001 }, parameter_efficiency: { adms_enabled: true, selection_ratio: 0.05 } };
 const update = (config, section, field, value) => ({ ...config, [section]: { ...config[section], [field]: value } });
+const toApiConfig = (config) => ({
+  model_type: 'autoencoder',
+  num_clients: config.federated.num_clients,
+  num_rounds: config.training.num_rounds,
+  clients_per_round: config.federated.clients_per_round,
+  epsilon: config.privacy.epsilon,
+  delta: config.privacy.delta,
+  batch_size: config.training.batch_size,
+  learning_rate: config.training.learning_rate,
+  local_epochs: config.training.local_epochs,
+  dataset: config.data.dataset === 'NSL-KDD' ? 'nsl-kdd' : 'kdd99',
+  data_split: config.federated.partition_strategy,
+  experiment_name: config.experiment.name,
+  model_params: {
+    backbone: config.model.backbone,
+    hidden_dim: config.model.hidden_dim,
+    dropout: config.model.dropout,
+    window_size: config.data.window_size,
+    stride: config.data.stride,
+    seed: config.experiment.seed,
+    adms_enabled: config.parameter_efficiency.adms_enabled,
+    selection_ratio: config.parameter_efficiency.selection_ratio,
+  },
+});
 
 const NewExperiment = () => {
   const dispatch = useDispatch();
@@ -25,7 +49,7 @@ const NewExperiment = () => {
   const [message, setMessage] = useState('');
   useEffect(() => { apiClient.get('/configs').then(({ data }) => setTemplates(Array.isArray(data) ? data : data.configs || [])).catch(() => {}); }, []);
   const field = (section, name, label, type = 'number') => <TextField label={label} type={type} value={config[section][name]} onChange={(event) => setConfig(update(config, section, name, type === 'number' ? Number(event.target.value) : event.target.value))} inputProps={type === 'number' ? { min: 0, step: 'any' } : undefined} fullWidth />;
-  const submit = async (event) => { event.preventDefault(); setMessage(''); if (!config.experiment.name.trim()) { setMessage('Experiment name is required.'); return; } const result = await dispatch(createExperiment(config)); if (createExperiment.fulfilled.match(result)) navigate(`/experiments/${result.payload.id}`); };
+  const submit = async (event) => { event.preventDefault(); setMessage(''); if (!config.experiment.name.trim()) { setMessage('Experiment name is required.'); return; } const result = await dispatch(createExperiment(toApiConfig(config))); if (createExperiment.fulfilled.match(result)) navigate(`/experiments/${result.payload.experiment_id}`); };
   const loadTemplate = async (event) => { const selected = templates.find((item) => (item.id || item.name) === event.target.value); if (selected) setConfig(selected.config || selected); setTemplate(event.target.value); };
   const saveTemplate = async () => { if (!config.experiment.name.trim()) { setMessage('Add an experiment name before saving a template.'); return; } await apiClient.post('/configs', config); setMessage('Configuration template saved.'); };
   return (

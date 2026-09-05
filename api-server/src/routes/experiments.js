@@ -180,12 +180,14 @@ router.post(
       // Forward request to Python Backend /train endpoint
       const response = await axiosClient.post('/train', {
         ...config,
+        dataset: config.dataset === 'nsl-kdd' ? 'NSL-KDD' : 'SMD',
         callback_url: callbackUrl,
       });
 
       // Extract experiment data from Python backend response
+      const backendExperimentId = response.data.experiment_id || experimentId;
       const experimentData = {
-        experiment_id: experimentId,
+        experiment_id: backendExperimentId,
         userId: user.userId, // Associate experiment with user (Requirement 38.3)
         username: user.username,
         config,
@@ -200,7 +202,7 @@ router.post(
       };
 
       // Cache experiment data (individual experiment cache with no expiration)
-      experimentCache.set(`experiment:${experimentId}`, experimentData, 0);
+      experimentCache.set(`experiment:${backendExperimentId}`, experimentData, 0);
 
       // Invalidate all list caches since we added a new experiment
       const keys = experimentCache.keys();
@@ -228,7 +230,7 @@ router.post(
 
       // Return 201 Created with experiment details
       return res.status(201).json({
-        experiment_id: experimentId,
+        experiment_id: backendExperimentId,
         status: experimentData.status,
         current_round: experimentData.current_round,
         total_rounds: experimentData.total_rounds,
@@ -1350,9 +1352,38 @@ router.post(
   asyncHandler(async (req, res) => {
     const { id } = req.params;
     const updateData = req.body;
+    const experimentId = updateData.experimentId || updateData.experiment_id || id;
+    const metricType = updateData.metricType;
+    const metricData = updateData.data || {
+      round: updateData.round_number,
+      loss: updateData.global_loss,
+      accuracy: updateData.global_accuracy,
+    };
+
+    if (metricType && metricData) {
+      const wsServer = req.app.locals.wsServer;
+      if (wsServer) {
+        switch (metricType) {
+          case 'training_round_complete':
+            wsServer.broadcastTrainingRoundComplete(experimentId, metricData);
+            break;
+          case 'privacy_budget_update':
+            wsServer.broadcastPrivacyBudgetUpdate(experimentId, metricData);
+            break;
+          case 'experiment_status_change':
+            wsServer.broadcastExperimentStatusChange(experimentId, metricData);
+            break;
+          case 'error':
+            wsServer.broadcastError(experimentId, metricData);
+            break;
+          default:
+            throw new AppError(`Unsupported callback metric type: ${metricType}`, 400);
+        }
+      }
+    }
 
     // Update cache with new data
-    const cacheKey = `experiment:${id}`;
+    const cacheKey = `experiment:${experimentId}`;
     const cachedData = experimentCache.get(cacheKey);
 
     if (cachedData) {
@@ -1366,7 +1397,7 @@ router.post(
 
     return res.status(200).json({
       message: 'Callback received',
-      experiment_id: id,
+      experiment_id: experimentId,
     });
   })
 );

@@ -11,9 +11,7 @@
  */
 
 import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
-import axios from 'axios';
-
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+import apiClient from '../../api/client';
 
 /**
  * @typedef {Object} Experiment
@@ -40,7 +38,7 @@ export const fetchExperiments = createAsyncThunk(
   'experiments/fetchAll',
   async (_, { rejectWithValue }) => {
     try {
-      const response = await axios.get(`${API_BASE_URL}/api/experiments`);
+      const response = await apiClient.get('/experiments');
       return response.data;
     } catch (error) {
       return rejectWithValue(error.response?.data || error.message);
@@ -61,7 +59,7 @@ export const fetchExperimentById = createAsyncThunk(
   'experiments/fetchById',
   async (id, { rejectWithValue }) => {
     try {
-      const response = await axios.get(`${API_BASE_URL}/api/experiments/${id}`);
+      const response = await apiClient.get(`/experiments/${id}`);
       return response.data;
     } catch (error) {
       return rejectWithValue(error.response?.data || error.message);
@@ -82,7 +80,7 @@ export const createExperiment = createAsyncThunk(
   'experiments/create',
   async (config, { rejectWithValue }) => {
     try {
-      const response = await axios.post(`${API_BASE_URL}/api/experiments`, config);
+      const response = await apiClient.post('/experiments', config);
       return response.data;
     } catch (error) {
       return rejectWithValue(error.response?.data || error.message);
@@ -103,7 +101,7 @@ export const deleteExperiment = createAsyncThunk(
   'experiments/delete',
   async (id, { rejectWithValue }) => {
     try {
-      await axios.delete(`${API_BASE_URL}/api/experiments/${id}`);
+      await apiClient.delete(`/experiments/${id}`);
       return id;
     } catch (error) {
       return rejectWithValue(error.response?.data || error.message);
@@ -124,7 +122,7 @@ export const pauseExperiment = createAsyncThunk(
   'experiments/pause',
   async (id, { rejectWithValue }) => {
     try {
-      const response = await axios.post(`${API_BASE_URL}/api/experiments/${id}/pause`);
+      const response = await apiClient.post(`/experiments/${id}/pause`);
       return response.data;
     } catch (error) {
       return rejectWithValue(error.response?.data || error.message);
@@ -145,7 +143,7 @@ export const resumeExperiment = createAsyncThunk(
   'experiments/resume',
   async (id, { rejectWithValue }) => {
     try {
-      const response = await axios.post(`${API_BASE_URL}/api/experiments/${id}/resume`);
+      const response = await apiClient.post(`/experiments/${id}/resume`);
       return response.data;
     } catch (error) {
       return rejectWithValue(error.response?.data || error.message);

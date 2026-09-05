@@ -53,6 +53,20 @@ pip install -r requirements.txt
 
 **For detailed installation instructions with exact dependency versions, see [INSTALL.md](INSTALL.md)**
 
+### Docker Compose Deployment
+
+The complete deployment includes the Python ML backend, Node.js API server, React production server, PostgreSQL, Redis, and an Nginx HTTP/HTTPS gateway.
+
+```bash
+cp .env.example .env
+# Edit .env and set JWT_SECRET and POSTGRES_PASSWORD
+docker compose up --build -d
+```
+
+Open `https://localhost` for the dashboard. The gateway creates a development self-signed certificate in the `nginx-certs` volume; mount or replace `tls.crt` and `tls.key` there for a trusted certificate. To stop the deployment, run `docker compose down`.
+
+Deployment configuration checks run with `python -m pytest tests/test_deployment.py -q`. Set `RUN_DOCKER_DEPLOYMENT_TESTS=1` to additionally build, start, health-check, and tear down the full Compose stack.
+
 **For detailed installation instructions with exact dependency versions, see [INSTALL.md](INSTALL.md)**
 
 ### Dataset Setup

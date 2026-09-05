@@ -10,10 +10,8 @@
  */
 
 import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
-import axios from 'axios';
+import apiClient from '../../api/client';
 import { getCacheItem, setCacheItem } from '../../utils/cacheUtils';
-
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 
 /**
  * @typedef {Object} TrainingMetric
@@ -57,9 +55,7 @@ export const fetchTrainingMetrics = createAsyncThunk(
       const cacheKey = `metrics_training_${experimentId}`;
       const cached = getCacheItem(cacheKey);
       if (cached !== null) return { experimentId, data: cached };
-      const response = await axios.get(
-        `${API_BASE_URL}/api/experiments/${experimentId}/metrics/training`
-      );
+      const response = await apiClient.get(`/experiments/${experimentId}/metrics/training`);
       setCacheItem(cacheKey, response.data);
       return { experimentId, data: response.data };
     } catch (error) {
@@ -84,9 +80,7 @@ export const fetchPrivacyMetrics = createAsyncThunk(
       const cacheKey = `metrics_privacy_${experimentId}`;
       const cached = getCacheItem(cacheKey);
       if (cached !== null) return { experimentId, data: cached };
-      const response = await axios.get(
-        `${API_BASE_URL}/api/experiments/${experimentId}/metrics/privacy`
-      );
+      const response = await apiClient.get(`/experiments/${experimentId}/metrics/privacy`);
       setCacheItem(cacheKey, response.data);
       return { experimentId, data: response.data };
     } catch (error) {
@@ -111,9 +105,7 @@ export const fetchCommunicationMetrics = createAsyncThunk(
       const cacheKey = `metrics_communication_${experimentId}`;
       const cached = getCacheItem(cacheKey);
       if (cached !== null) return { experimentId, data: cached };
-      const response = await axios.get(
-        `${API_BASE_URL}/api/experiments/${experimentId}/metrics/communication`
-      );
+      const response = await apiClient.get(`/experiments/${experimentId}/metrics/communication`);
       setCacheItem(cacheKey, response.data);
       return { experimentId, data: response.data };
     } catch (error) {
@@ -138,9 +130,7 @@ export const fetchAllMetrics = createAsyncThunk(
       const cacheKey = `metrics_all_${experimentId}`;
       const cached = getCacheItem(cacheKey);
       if (cached !== null) return { experimentId, data: cached };
-      const response = await axios.get(
-        `${API_BASE_URL}/api/experiments/${experimentId}/metrics`
-      );
+      const response = await apiClient.get(`/experiments/${experimentId}/metrics`);
       setCacheItem(cacheKey, response.data);
       return { experimentId, data: response.data };
     } catch (error) {
