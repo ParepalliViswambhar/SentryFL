@@ -8,9 +8,20 @@ import { useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import { useDispatch, useSelector } from 'react-redux';
 import { Alert, Box, CircularProgress, Stack, Typography } from '@mui/material';
-import { TrainingMetricsChart, CommunicationCostChart, CommunicationEfficiencyMetrics } from '../components/LazyCharts';
+import {
+  TrainingMetricsChart,
+  CommunicationCostChart,
+  CommunicationEfficiencyMetrics,
+  PrivacyBudgetGauge,
+  MIAVisualization,
+} from '../components/LazyCharts';
 import useWebSocket from '../hooks/useWebSocket';
-import { fetchAllMetrics, selectTrainingMetrics, selectCommunicationMetrics } from '../store/slices/metricsSlice';
+import {
+  fetchAllMetrics,
+  selectTrainingMetrics,
+  selectCommunicationMetrics,
+  selectPrivacyMetrics,
+} from '../store/slices/metricsSlice';
 import { fetchExperimentById, selectCurrentExperiment, selectExperimentsStatus } from '../store/slices/experimentsSlice';
 
 const ExperimentDetail = () => {
@@ -19,6 +30,7 @@ const ExperimentDetail = () => {
   const experiment = useSelector(selectCurrentExperiment);
   const trainingMetrics = useSelector(selectTrainingMetrics(id));
   const communicationMetrics = useSelector(selectCommunicationMetrics(id));
+  const privacyMetrics = useSelector(selectPrivacyMetrics(id));
   const status = useSelector(selectExperimentsStatus);
   const socket = useWebSocket(id);
 
@@ -48,10 +60,19 @@ const ExperimentDetail = () => {
           status={socket.status} 
         />
         
+        {/* Privacy Budget & Membership Inference */}
+        <PrivacyBudgetGauge
+          privacyMetrics={privacyMetrics}
+          maxEpsilon={experiment.config?.epsilon || experiment.epsilon}
+          maxDelta={experiment.config?.delta || experiment.delta}
+        />
+
+        <MIAVisualization miaResults={privacyMetrics} />
+
         {/* Communication Efficiency Visualizations */}
         <CommunicationCostChart metrics={communicationMetrics} />
-        
-        <CommunicationEfficiencyMetrics 
+
+        <CommunicationEfficiencyMetrics
           communicationMetrics={communicationMetrics}
           trainingMetrics={trainingMetrics}
         />

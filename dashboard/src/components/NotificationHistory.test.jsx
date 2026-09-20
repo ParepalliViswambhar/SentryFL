@@ -5,8 +5,8 @@
  * Validates Requirements 40.7, 40.8
  */
 
-import { describe, it, expect, beforeEach } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { render, screen } from '@testing-library/react';
 import { Provider } from 'react-redux';
 import { configureStore } from '@reduxjs/toolkit';
 import userEvent from '@testing-library/user-event';
@@ -362,7 +362,7 @@ describe('NotificationHistory', () => {
       ],
     });
 
-    const { container } = render(
+    render(
       <Provider store={store}>
         <NotificationHistory open={true} onClose={mockOnClose} />
       </Provider>

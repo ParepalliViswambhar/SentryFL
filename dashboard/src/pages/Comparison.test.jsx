@@ -5,11 +5,6 @@ import { configureStore } from '@reduxjs/toolkit';
 import userEvent from '@testing-library/user-event';
 import Comparison from './Comparison';
 
-// Create a minimal mock of experiments slice
-const mockExperimentsReducer = (state = { list: [], status: 'succeeded', error: null }, action) => {
-  return state;
-};
-
 // Mock Chart.js components
 vi.mock('react-chartjs-2', () => ({
   Line: () => <div data-testid="line-chart">Line Chart</div>,
@@ -561,13 +556,9 @@ describe('Comparison Page', () => {
       await user.click(checkboxes[1]);
 
       // Mock URL.createObjectURL to capture the CSV content
-      let csvContent = '';
       global.URL.createObjectURL = vi.fn((blob) => {
         // Read the blob content
         const reader = new FileReader();
-        reader.onload = () => {
-          csvContent = reader.result;
-        };
         reader.readAsText(blob);
         return 'mock-url';
       });
@@ -622,12 +613,7 @@ describe('Comparison Page', () => {
       await user.click(checkboxes[0]);
 
       // Mock setAttribute to capture filename
-      let downloadFilename = '';
-      const mockSetAttribute = vi.fn((attr, value) => {
-        if (attr === 'download') {
-          downloadFilename = value;
-        }
-      });
+      const mockSetAttribute = vi.fn();
 
       mockCreateElement.mockReturnValue({
         setAttribute: mockSetAttribute,

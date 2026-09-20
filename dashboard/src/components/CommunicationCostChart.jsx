@@ -251,13 +251,6 @@ const CommunicationCostChart = ({ metrics = [], title = 'Communication Costs' })
     }
   };
 
-  // Handle chart view change
-  const handleViewChange = (event, newView) => {
-    if (newView !== null) {
-      setChartView(newView);
-    }
-  };
-
   // Select current chart data based on view
   const currentChartData = useMemo(() => {
     switch (chartView) {

@@ -22,8 +22,8 @@ SentryFL is a three-tier differentially private, communication-efficient federat
 
 ### System Architecture
 SentryFL is architected as a three-tier system:
-1. **Tier 1**: React Web Dashboard (visualization and experiment control)
-2. **Tier 2**: Node.js + Express API Server (REST and WebSocket endpoints)
+1. **Tier 1**: React Web Dashboard (visualization and experiment control, including live privacy-budget and membership-inference charts)
+2. **Tier 2**: Node.js + Express API Server (REST and WebSocket endpoints, JWT auth, MongoDB persistence for users and audit logs)
 3. **Tier 3**: Python Backend (ML training, federated learning, privacy mechanisms)
 
 ## 📋 Table of Contents
@@ -145,8 +145,6 @@ SentryFL supports two benchmark datasets for time-series anomaly detection:
 
 ## 💻 Usage
 
-## 💻 Usage
-
 ### Command-Line Interface
 
 SentryFL provides a comprehensive CLI with four main commands:
@@ -179,10 +177,6 @@ python -m sentryfl.cli baseline --config config.yaml --data-path ./data/SMD
 ```
 
 **For comprehensive CLI documentation with all options and examples, see [CLI_USAGE.md](CLI_USAGE.md)**
-
-### Python API
-
-You can also use SentryFL programmatically:
 
 ### Python API
 

@@ -71,9 +71,11 @@ const authRouter = require('./routes/auth');
 const experimentsRouter = require('./routes/experiments');
 const configsRouter = require('./routes/configs');
 const internalRouter = require('./routes/internal');
+const adminRouter = require('./routes/admin');
 app.use('/api/auth', authRouter);
 app.use('/api/experiments', experimentsRouter);
 app.use('/api/configs', configsRouter);
+app.use('/api/admin', adminRouter);
 app.use('/internal', internalRouter);
 
 // Initialize WebSocket server

@@ -353,7 +353,7 @@ export const generatePDFReport = async (experimentId, apiClient) => {
  * @param {Function} apiClient - Axios client instance
  * @returns {Promise<void>}
  */
-export const exportFullExperimentPackage = async (experiment, chartRefs, apiClient) => {
+export const exportFullExperimentPackage = async (experiment, chartRefs) => {
   const files = [];
 
   // 1. Summary report (JSON)

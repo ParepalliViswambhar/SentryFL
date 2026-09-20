@@ -127,7 +127,7 @@ const Comparison = () => {
 
   // Calculate statistical significance using t-test approximation
   // For simplicity, we'll use coefficient of variation and sample size heuristics
-  const calculateSignificance = (experiments, metric, isHigherBetter = true) => {
+  const calculateSignificance = (experiments, metric) => {
     if (experiments.length < 2) return {};
     
     const values = experiments.map(exp => exp.metrics?.[metric] || 0).filter(v => v > 0);
@@ -136,7 +136,6 @@ const Comparison = () => {
     const mean = values.reduce((sum, v) => sum + v, 0) / values.length;
     const variance = values.reduce((sum, v) => sum + Math.pow(v - mean, 2), 0) / values.length;
     const stdDev = Math.sqrt(variance);
-    const cv = stdDev / mean; // Coefficient of variation
 
     // Simplified significance calculation
     // If CV < 0.05: highly significant (***), CV < 0.1: significant (**), CV < 0.2: marginally significant (*)

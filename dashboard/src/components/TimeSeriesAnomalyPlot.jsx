@@ -28,8 +28,6 @@ import {
   Typography,
 } from '@mui/material';
 import DownloadIcon from '@mui/icons-material/Download';
-import ZoomInIcon from '@mui/icons-material/ZoomIn';
-import ZoomOutIcon from '@mui/icons-material/ZoomOut';
 import RestartAltIcon from '@mui/icons-material/RestartAlt';
 import TimelineIcon from '@mui/icons-material/Timeline';
 import InfoIcon from '@mui/icons-material/Info';
@@ -45,7 +43,7 @@ import {
   Filler,
 } from 'chart.js';
 import zoomPlugin from 'chartjs-plugin-zoom';
-import { downsampleTimeSeries, needsDownsampling } from '../utils/dataUtils';
+import { downsampleTimeSeries } from '../utils/dataUtils';
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, ChartTooltip, Legend, Filler, zoomPlugin);
 
@@ -117,9 +115,6 @@ const TimeSeriesAnomalyPlot = ({
 
   // Prepare chart data with downsampling for large datasets
   const chartData = useMemo(() => {
-    const timestamps = timeSeriesData.map((point, idx) => point.timestamp || idx);
-    const values = timeSeriesData.map((point) => point.value);
-
     // Downsample if dataset is too large (Requirement 37.6)
     const shouldDownsample = timeSeriesData.length > 1000;
     const downsampledData = shouldDownsample 

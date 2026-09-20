@@ -31,6 +31,10 @@ class ExperimentRunner:
         self.error: Optional[str] = None
         self.metrics_history: List[Dict[str, Any]] = []
         self.stop_event = threading.Event()
+        # pause_event is SET when the experiment may proceed and CLEARED to
+        # pause it. The worker thread blocks on it at each round boundary.
+        self.pause_event = threading.Event()
+        self.pause_event.set()
         self._task: Optional[asyncio.Task] = None
         self._lock = threading.Lock()
 
@@ -57,6 +61,15 @@ class ExperimentRunner:
             self.end_time = time.time()
 
     def _on_round_metrics(self, round_number: int, metrics: Dict[str, Any]) -> None:
+        # Block here while paused so training halts at a round boundary without
+        # losing state. Wake up promptly if a stop is requested.
+        while not self.pause_event.is_set() and not self.stop_event.is_set():
+            self.status = "paused"
+            self.pause_event.wait(timeout=0.5)
+        if self.stop_event.is_set():
+            return
+        if self.status == "paused":
+            self.status = "running"
         with self._lock:
             self.current_round = round_number
             snapshot = deepcopy(metrics)
@@ -98,8 +111,23 @@ class ExperimentRunner:
 
     async def stop(self) -> None:
         self.stop_event.set()
-        if self._task and self.status in {"pending", "running"}:
+        # Ensure a paused worker wakes up to observe the stop request.
+        self.pause_event.set()
+        if self._task and self.status in {"pending", "running", "paused"}:
             await asyncio.sleep(0)
+
+    async def pause(self) -> None:
+        """Request the experiment pause at the next round boundary."""
+        if self.status in {"pending", "running"}:
+            self.pause_event.clear()
+        await asyncio.sleep(0)
+
+    async def resume(self) -> None:
+        """Resume a paused experiment."""
+        if self.status == "paused":
+            self.status = "running"
+        self.pause_event.set()
+        await asyncio.sleep(0)
 
     def get_status(self) -> ExperimentStatus:
         return ExperimentStatus(
@@ -113,14 +141,74 @@ class ExperimentRunner:
         )
 
     def get_metrics(self, start_round: Optional[int] = None,
-                    end_round: Optional[int] = None) -> List[Dict[str, Any]]:
+                    end_round: Optional[int] = None,
+                    category: Optional[str] = None,
+                    limit: Optional[int] = None,
+                    offset: int = 0) -> Dict[str, Any]:
+        """Return a paginated metrics envelope.
+
+        Shape: {"metrics": [...], "total": int, "limit": int|None, "offset": int}.
+        When ``category`` is given (training/privacy/communication/evaluation),
+        each entry is reduced to that category's records plus round metadata.
+        """
         with self._lock:
             metrics = list(self.metrics_history)
         if start_round is not None:
             metrics = [item for item in metrics if item["round_number"] >= start_round]
         if end_round is not None:
             metrics = [item for item in metrics if item["round_number"] <= end_round]
-        return metrics
+
+        if category is not None:
+            metrics = [self._project_category(item, category) for item in metrics]
+
+        total = len(metrics)
+        if offset:
+            metrics = metrics[offset:]
+        if limit is not None:
+            metrics = metrics[:limit]
+
+        return {"metrics": metrics, "total": total, "limit": limit, "offset": offset}
+
+    @staticmethod
+    def _project_category(entry: Dict[str, Any], category: str) -> Dict[str, Any]:
+        """Reduce a metrics entry to a single category's records."""
+        category_data = entry.get("metrics", {}).get(category, [])
+        return {
+            "experiment_id": entry.get("experiment_id"),
+            "round_number": entry.get("round_number"),
+            "timestamp": entry.get("timestamp"),
+            "metric_type": category,
+            "data": category_data,
+        }
+
+    def get_report(self) -> Dict[str, Any]:
+        """Return a JSON summary report of the experiment.
+
+        The dashboard renders PDF/CSV client-side; this provides the structured
+        summary those exporters (and the Node /report proxy) consume.
+        """
+        status = self.get_status()
+        with self._lock:
+            history = list(self.metrics_history)
+        latest = history[-1] if history else {}
+        duration = None
+        if self.start_time is not None:
+            end = self.end_time if self.end_time is not None else time.time()
+            duration = end - self.start_time
+        return {
+            "experiment_id": self.experiment_id,
+            "status": status.status,
+            "current_round": status.current_round,
+            "total_rounds": status.total_rounds,
+            "start_time": self.start_time,
+            "end_time": self.end_time,
+            "duration_seconds": duration,
+            "error": self.error,
+            "final_loss": latest.get("global_loss"),
+            "final_accuracy": latest.get("global_accuracy"),
+            "rounds_recorded": len(history),
+            "config": self.config.model_dump() if hasattr(self.config, "model_dump") else {},
+        }
 
 
 def _latest(metrics: Optional[List[Dict[str, Any]]], key: str) -> Optional[Any]:

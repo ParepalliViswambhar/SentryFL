@@ -124,21 +124,56 @@ Key environment variables (see `.env.example`):
 
 ## API Endpoints
 
-### REST API
+All application routes are mounted under `/api`. Experiment, admin, and
+auth-protected routes require a `Bearer <JWT>` token (obtain one from
+`/api/auth/login`).
 
-- `GET /api/v1/health` - Health check
-- `POST /api/v1/experiments` - Create new experiment
-- `GET /api/v1/experiments` - List experiments
-- `GET /api/v1/experiments/:id` - Get experiment details
-- `POST /api/v1/experiments/:id/start` - Start experiment
-- `POST /api/v1/experiments/:id/stop` - Stop experiment
-- `GET /api/v1/metrics/:experimentId` - Get experiment metrics
+### Health
+
+- `GET /health` - Health check (includes MongoDB connection status)
+
+### Auth (`/api/auth`)
+
+- `POST /api/auth/register` - Register a new user
+- `POST /api/auth/login` - Log in, returns a JWT
+- `GET /api/auth/me` - Current user (auth)
+- `POST /api/auth/logout` - Log out (auth)
+
+### Experiments (`/api/experiments`, auth required)
+
+- `POST /api/experiments` - Create/start an experiment
+- `GET /api/experiments` - List experiments (own; all for admin)
+- `GET /api/experiments/:id` - Experiment details
+- `GET /api/experiments/:id/status` - Current status
+- `DELETE /api/experiments/:id` - Stop an experiment
+- `POST /api/experiments/:id/pause` - Pause training
+- `POST /api/experiments/:id/resume` - Resume training
+- `GET /api/experiments/:id/metrics` - All metrics (paginated)
+- `GET /api/experiments/:id/metrics/{training|privacy|communication|evaluation}` - Metrics by category
+- `GET /api/experiments/:id/report` - Experiment summary report
+- `POST /api/experiments/:id/callback` - Internal metric callback from the Python backend (no auth)
+
+### Configurations (`/api/configs`)
+
+- `GET /api/configs` / `POST /api/configs` - List / create configuration templates
+- `GET|PUT|DELETE /api/configs/:id` - Retrieve / update / delete a template
+- `GET /api/configs/defaults` - Default configuration values
+- `POST /api/configs/validate` - Validate a configuration without saving
+
+### Admin (`/api/admin`, admin role required)
+
+- `GET /api/admin/users` - List all users
+- `GET /api/admin/audit-logs` - Query the audit trail (filterable)
+- `GET /api/admin/audit-logs/experiments/:id` - Audit logs for an experiment
+- `GET /api/admin/audit-logs/users/:id` - Audit logs for a user
+- `GET /api/admin/audit-logs/stats` - Audit log statistics
 
 ### WebSocket API
 
-- Connect to `/socket.io`
-- Listen for `training_update` events for real-time metrics
-- Emit `subscribe_experiment` to subscribe to specific experiment updates
+- Connect via Socket.io with a JWT in the connection auth payload
+- Subscribe to an experiment room (`experiment:<id>`) for real-time updates
+- Server emits `training_round_complete`, `privacy_budget_update`,
+  `experiment_status_change`, and `error` events
 
 ## Security Features
 

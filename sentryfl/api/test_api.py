@@ -43,7 +43,60 @@ def test_train_status_and_metrics_endpoints():
 
     metrics = client.get(f"/train/{experiment_id}/metrics?start_round=2")
     assert metrics.status_code == 200
-    assert [item["round_number"] for item in metrics.json()] == [2, 3]
+    body = metrics.json()
+    assert body["total"] == 2
+    assert [item["round_number"] for item in body["metrics"]] == [2, 3]
+
+
+def test_list_experiments_endpoint():
+    client = TestClient(create_app(runner_factory))
+    client.post("/train", json={"num_rounds": 3})
+    client.post("/train", json={"num_rounds": 3})
+
+    listing = client.get("/train")
+    assert listing.status_code == 200
+    body = listing.json()
+    assert body["total"] == 2
+    assert len(body["experiments"]) == 2
+
+
+def test_per_category_metrics_endpoint():
+    client = TestClient(create_app(runner_factory))
+    experiment_id = client.post("/train", json={"num_rounds": 3}).json()["experiment_id"]
+
+    training = client.get(f"/train/{experiment_id}/metrics/training")
+    assert training.status_code == 200
+    body = training.json()
+    assert body["total"] == 3
+    assert all(item["metric_type"] == "training" for item in body["metrics"])
+
+    bad = client.get(f"/train/{experiment_id}/metrics/nonsense")
+    assert bad.status_code == 400
+
+
+def test_report_endpoint():
+    client = TestClient(create_app(runner_factory))
+    experiment_id = client.post("/train", json={"num_rounds": 3}).json()["experiment_id"]
+
+    report = client.get(f"/train/{experiment_id}/report")
+    assert report.status_code == 200
+    body = report.json()
+    assert body["experiment_id"] == experiment_id
+    assert body["rounds_recorded"] == 3
+    assert body["total_rounds"] == 3
+
+
+def test_pause_and_resume_endpoints():
+    client = TestClient(create_app(runner_factory))
+    experiment_id = client.post("/train", json={"num_rounds": 3}).json()["experiment_id"]
+
+    # FakeTrainer finishes synchronously, so by now it is completed; pause/resume
+    # should still respond with a valid status and not error.
+    pause = client.post(f"/train/{experiment_id}/pause")
+    assert pause.status_code == 200
+    resume = client.post(f"/train/{experiment_id}/resume")
+    assert resume.status_code == 200
+    assert resume.json()["status"] in {"pending", "running", "paused", "completed", "stopped"}
 
 
 def test_stop_endpoint_requests_graceful_stop():

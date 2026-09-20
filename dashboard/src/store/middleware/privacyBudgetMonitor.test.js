@@ -9,15 +9,13 @@
  * @module middleware/privacyBudgetMonitor.test
  */
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import { configureStore } from '@reduxjs/toolkit';
 import privacyBudgetMonitor, {
   clearWarningHistory,
   clearAllWarningHistory,
 } from './privacyBudgetMonitor';
-import notificationsReducer, {
-  addPrivacyBudgetWarning,
-} from '../slices/notificationsSlice';
+import notificationsReducer from '../slices/notificationsSlice';
 import metricsReducer, { addPrivacyMetric } from '../slices/metricsSlice';
 import experimentsReducer from '../slices/experimentsSlice';
 

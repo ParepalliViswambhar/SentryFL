@@ -169,7 +169,7 @@ describe('TimeSeriesAnomalyPlot Component', () => {
       ];
       const predictedAnomalies = [1];
 
-      const { rerender } = render(
+      render(
         <TimeSeriesAnomalyPlot
           timeSeriesData={timeSeriesData}
           predictedAnomalies={predictedAnomalies}

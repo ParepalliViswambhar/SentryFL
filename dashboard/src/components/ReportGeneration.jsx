@@ -43,7 +43,6 @@ import DescriptionIcon from '@mui/icons-material/Description';
 import DataObjectIcon from '@mui/icons-material/DataObject';
 import CodeIcon from '@mui/icons-material/Code';
 import {
-  generateSummaryReport,
   exportSummaryReport,
   exportAnomalyDetectionResults,
   exportExperimentComparisonLaTeX,

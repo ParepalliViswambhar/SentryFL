@@ -11,7 +11,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import MIAVisualization from './MIAVisualization';
 
@@ -28,13 +28,6 @@ vi.mock('react-chartjs-2', () => ({
     </div>
   )),
 }));
-
-// Mock document.createElement for export functionality
-const mockLink = {
-  click: vi.fn(),
-  download: '',
-  href: '',
-};
 
 describe('MIAVisualization Component', () => {
   beforeEach(() => {

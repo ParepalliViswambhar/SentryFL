@@ -36,8 +36,7 @@ import {
 import InfoIcon from '@mui/icons-material/Info';
 import AssessmentIcon from '@mui/icons-material/Assessment';
 import DownloadIcon from '@mui/icons-material/Download';
-import { Line, Bar } from 'react-chartjs-2';
-import ExportButton from './ExportButton';
+import { Line } from 'react-chartjs-2';
 import { exportChartAsPNG, exportChartAsSVG, PUBLICATION_DPI } from '../utils/exportUtils';
 import {
   Chart as ChartJS,

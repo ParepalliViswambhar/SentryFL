@@ -27,8 +27,6 @@ import {
   DialogContent,
   DialogActions,
   TextField,
-  FormControlLabel,
-  Switch,
   Stack,
   Typography,
   Tooltip,

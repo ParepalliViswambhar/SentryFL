@@ -118,11 +118,11 @@ describe('dataUtils - Downsampling', () => {
         datasets: [
           {
             label: 'Loss',
-            data: Array.from({ length: 2000 }, (_, i) => Math.random()),
+            data: Array.from({ length: 2000 }, () => Math.random()),
           },
           {
             label: 'Accuracy',
-            data: Array.from({ length: 2000 }, (_, i) => Math.random()),
+            data: Array.from({ length: 2000 }, () => Math.random()),
           },
         ],
       };
@@ -264,10 +264,7 @@ describe('dataUtils - Performance Benchmarks', () => {
       y: Math.sin(i / 100) * 100 + Math.random() * 10,
     }));
 
-    const startOriginal = performance.now();
     const originalLength = largeData.length;
-    const endOriginal = performance.now();
-    const originalTime = endOriginal - startOriginal;
 
     const startDownsampled = performance.now();
     const downsampled = downsampleLTTB(largeData, 1000);
