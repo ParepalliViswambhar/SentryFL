@@ -54,7 +54,7 @@ router.get(
   asyncHandler(async (req, res) => {
     const { userId, action, resourceType, resourceId, startDate, endDate, limit, offset } = req.query;
 
-    const result = getAuditLogs({
+    const result = await getAuditLogs({
       userId,
       action,
       resourceType,
@@ -86,7 +86,7 @@ router.get(
     const { experimentId } = req.params;
     const { limit, offset } = req.query;
 
-    const result = getExperimentAuditLogs(experimentId, limit, offset);
+    const result = await getExperimentAuditLogs(experimentId, limit, offset);
 
     return res.status(200).json({
       experimentId,
@@ -110,7 +110,7 @@ router.get(
     const { userId } = req.params;
     const { limit, offset } = req.query;
 
-    const result = getUserAuditLogs(userId, limit, offset);
+    const result = await getUserAuditLogs(userId, limit, offset);
 
     return res.status(200).json({
       userId,
@@ -130,7 +130,7 @@ router.get(
   authenticate,
   requireAdmin,
   asyncHandler(async (req, res) => {
-    const stats = getAuditStats();
+    const stats = await getAuditStats();
 
     return res.status(200).json({
       ...stats,
@@ -149,7 +149,7 @@ router.get(
   authenticate,
   requireAdmin,
   asyncHandler(async (req, res) => {
-    const users = getAllUsers();
+    const users = await getAllUsers();
 
     return res.status(200).json({
       users,

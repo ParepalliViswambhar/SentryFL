@@ -100,9 +100,9 @@ site/
 
 # Node.js (for API server)
 node_modules/
-package-lock.json
 yarn.lock
 .npm
+# package-lock.json is intentionally committed for reproducible Docker builds
 
 # Temporary files
 tmp/

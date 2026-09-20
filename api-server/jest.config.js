@@ -2,6 +2,10 @@ module.exports = {
   testEnvironment: 'node',
   roots: ['<rootDir>/src'],
   testMatch: ['**/__tests__/**/*.js', '**/?(*.)+(spec|test).js'],
+  // Spin up an in-memory MongoDB and connect Mongoose before each test file.
+  setupFilesAfterEnv: ['<rootDir>/src/test/setup.js'],
+  // mongodb-memory-server can take a few seconds to download/start on first run.
+  testTimeout: 30000,
   collectCoverageFrom: [
     'src/**/*.js',
     '!src/**/*.test.js',

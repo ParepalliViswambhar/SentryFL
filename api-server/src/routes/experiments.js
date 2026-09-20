@@ -213,7 +213,7 @@ router.post(
       });
 
       // Log experiment creation to audit trail (Requirement 38.10)
-      logAction({
+      await logAction({
         userId: user.userId,
         username: user.username,
         action: AuditActionType.EXPERIMENT_CREATE,
@@ -239,7 +239,7 @@ router.post(
       });
     } catch (error) {
       // Log failed experiment creation
-      logAction({
+      await logAction({
         userId: user.userId,
         username: user.username,
         action: AuditActionType.EXPERIMENT_CREATE,
@@ -466,7 +466,7 @@ router.delete(
 
     // Check authorization: owner or admin only (Requirement 38.4)
     if (!hasExperimentAccess(user, experiment)) {
-      logAction({
+      await logAction({
         userId: user.userId,
         username: user.username,
         action: AuditActionType.EXPERIMENT_DELETE,
@@ -499,7 +499,7 @@ router.delete(
       });
 
       // Log experiment deletion to audit trail (Requirement 38.10)
-      logAction({
+      await logAction({
         userId: user.userId,
         username: user.username,
         action: AuditActionType.EXPERIMENT_DELETE,
@@ -520,7 +520,7 @@ router.delete(
       });
     } catch (error) {
       // Log failed deletion
-      logAction({
+      await logAction({
         userId: user.userId,
         username: user.username,
         action: AuditActionType.EXPERIMENT_DELETE,
@@ -576,7 +576,7 @@ router.post(
 
     // Check authorization: owner or admin only (Requirement 38.4)
     if (!hasExperimentAccess(user, experiment)) {
-      logAction({
+      await logAction({
         userId: user.userId,
         username: user.username,
         action: AuditActionType.EXPERIMENT_PAUSE,
@@ -601,7 +601,7 @@ router.post(
       experimentCache.del(`experiment:${id}`);
 
       // Log experiment pause to audit trail (Requirement 38.10)
-      logAction({
+      await logAction({
         userId: user.userId,
         username: user.username,
         action: AuditActionType.EXPERIMENT_PAUSE,
@@ -623,7 +623,7 @@ router.post(
       });
     } catch (error) {
       // Log failed pause
-      logAction({
+      await logAction({
         userId: user.userId,
         username: user.username,
         action: AuditActionType.EXPERIMENT_PAUSE,
@@ -679,7 +679,7 @@ router.post(
 
     // Check authorization: owner or admin only (Requirement 38.4)
     if (!hasExperimentAccess(user, experiment)) {
-      logAction({
+      await logAction({
         userId: user.userId,
         username: user.username,
         action: AuditActionType.EXPERIMENT_RESUME,
@@ -704,7 +704,7 @@ router.post(
       experimentCache.del(`experiment:${id}`);
 
       // Log experiment resume to audit trail (Requirement 38.10)
-      logAction({
+      await logAction({
         userId: user.userId,
         username: user.username,
         action: AuditActionType.EXPERIMENT_RESUME,
@@ -726,7 +726,7 @@ router.post(
       });
     } catch (error) {
       // Log failed resume
-      logAction({
+      await logAction({
         userId: user.userId,
         username: user.username,
         action: AuditActionType.EXPERIMENT_RESUME,

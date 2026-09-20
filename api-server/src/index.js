@@ -13,6 +13,8 @@ require('dotenv').config();
 
 const { notFoundHandler, errorHandler } = require('./middleware/errorHandler');
 const WebSocketServer = require('./websocket');
+const db = require('./db/connection');
+const { seedDefaultAdmin } = require('./services/userService');
 
 const app = express();
 const server = http.createServer(app);
@@ -45,11 +47,13 @@ app.use(limiter); // Rate limiting
 
 // Health check endpoint
 app.get('/health', (req, res) => {
-  res.status(200).json({
-    status: 'healthy',
+  const dbConnected = db.isConnected();
+  res.status(dbConnected ? 200 : 503).json({
+    status: dbConnected ? 'healthy' : 'degraded',
     timestamp: new Date().toISOString(),
     service: 'sentryfl-api-server',
     version: process.env.API_VERSION || 'v1',
+    database: dbConnected ? 'connected' : 'disconnected',
   });
 });
 
@@ -84,14 +88,38 @@ app.use(notFoundHandler);
 // Global error handler - must be last middleware
 app.use(errorHandler);
 
-// Start server
-if (process.env.NODE_ENV !== 'test') {
+// Start server (connect to MongoDB first). Tests manage their own connection
+// via src/test/setup.js, so skip startup there.
+async function start() {
+  try {
+    await db.connect();
+    console.info(`🗄️  Connected to MongoDB (${db.getMongoUri()})`);
+    await seedDefaultAdmin();
+  } catch (err) {
+    console.error('❌ Failed to connect to MongoDB:', err.message);
+    process.exit(1);
+  }
+
   server.listen(PORT, () => {
     console.info(`🚀 SentryFL API Server running on port ${PORT}`);
     console.info(`📝 Environment: ${process.env.NODE_ENV || 'development'}`);
     console.info(`🔗 Python Backend: ${process.env.PYTHON_BACKEND_URL || 'http://localhost:5000'}`);
     console.info(`🔌 WebSocket server listening on port ${PORT}`);
   });
+}
+
+// Graceful shutdown
+async function shutdown(signal) {
+  console.info(`\n${signal} received, shutting down gracefully...`);
+  server.close(() => {});
+  await db.disconnect();
+  process.exit(0);
+}
+
+if (process.env.NODE_ENV !== 'test') {
+  start();
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
+  process.on('SIGINT', () => shutdown('SIGINT'));
 }
 
 module.exports = { app, server, wsServer };

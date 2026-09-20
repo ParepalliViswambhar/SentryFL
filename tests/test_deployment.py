@@ -37,14 +37,14 @@ def test_compose_defines_all_services_and_health_checks():
         "python-backend",
         "api-server",
         "dashboard",
-        "postgres",
+        "mongo",
         "redis",
         "nginx",
     }
     assert all("healthcheck" in service for service in services.values())
     assert config["networks"]["sentryfl"]["driver"] == "bridge"
     assert {volume for volume in config["volumes"]} == {
-        "postgres-data",
+        "mongo-data",
         "redis-data",
         "nginx-certs",
     }
@@ -60,6 +60,7 @@ def test_compose_wires_internal_services_and_gateway_routes():
     assert services["python-backend"]["environment"]["REDIS_URL"] == (
         "redis://redis:6379/0"
     )
+    assert "mongo:27017" in services["api-server"]["environment"]["MONGODB_URI"]
     assert services["nginx"]["ports"] == [
         {"mode": "ingress", "target": 80, "published": "80", "protocol": "tcp"},
         {"mode": "ingress", "target": 443, "published": "443", "protocol": "tcp"},

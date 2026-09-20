@@ -308,97 +308,190 @@ def evaluate_command(args):
         logger.info(f"Evaluation plots saved to {plot_dir}")
 
 
+def _build_train_evaluate_fns(config_path, data_path, device, num_rounds=None):
+    """
+    Build train_fn / evaluate_fn callbacks used by the ablation and baseline
+    runners.
+
+    The runners expect:
+        train_fn(config: Dict, **kwargs) -> (trained_model, training_info)
+        evaluate_fn(model) -> Dict[str, float]
+
+    Returns a tuple of (train_fn, evaluate_fn).
+    """
+    from sentryfl.trainer import create_trainer_from_config
+    from sentryfl.models.plm_backbone import PLMAnomalyDetector
+
+    def _input_dim_for(dataset):
+        if dataset == 'SMD':
+            return 38
+        if dataset == 'NSL-KDD':
+            return 41
+        raise ValueError(f"Unknown dataset: {dataset}")
+
+    def train_fn(config, **kwargs):
+        """Train a model for a single ablation/baseline configuration."""
+        model_cfg = config.get('model', {})
+        data_cfg = config.get('data', {})
+        input_dim = _input_dim_for(data_cfg.get('dataset'))
+
+        model = PLMAnomalyDetector(
+            input_dim=input_dim,
+            hidden_dim=model_cfg.get('hidden_dim', 128),
+            model_name=model_cfg.get('backbone', 'bert-base-uncased'),
+            freeze_backbone=model_cfg.get('freeze_backbone', True),
+            dropout=model_cfg.get('dropout', 0.1),
+        )
+
+        # create_trainer_from_config reloads config from disk; apply the
+        # in-memory ablation/baseline overrides afterwards so the disabled
+        # components are honored.
+        trainer = create_trainer_from_config(
+            config_path=config_path,
+            model=model,
+            data_path=str(data_path),
+            device=device,
+        )
+        trainer.config.config = config
+        if num_rounds is not None:
+            trainer.training_config['num_rounds'] = num_rounds
+        trainer.setup()
+        trainer.train()
+
+        training_info = {
+            'communication_cost_mb': getattr(trainer, 'total_communication_mb', 0.0),
+            'model_size_mb': getattr(trainer, 'model_size_mb', 0.0),
+            'privacy_epsilon': getattr(trainer, 'privacy_epsilon_spent', None),
+        }
+        return trainer.model, training_info
+
+    def evaluate_fn(model, _test_data=None):
+        """Evaluate a trained model on the held-out test set.
+
+        The baseline runner passes its ``test_data`` as a second argument while
+        the ablation runner passes only the model, so the second parameter is
+        optional. Both load the test set from ``data_path`` here for an
+        identical-test-set comparison.
+        """
+        from sentryfl.utils.config import ConfigurationSystem
+        from sentryfl.evaluation.evaluation_pipeline import EvaluationPipeline
+        from sentryfl.data.dataset_loader import SMDDatasetLoader, NSLKDDDatasetLoader
+        from sentryfl.data.preprocessor import TimeSeriesPreprocessor
+
+        config = ConfigurationSystem.from_yaml(config_path)
+        data_cfg = config.get_section('data')
+        eval_cfg = config.get_section('evaluation')
+
+        if data_cfg['dataset'] == 'SMD':
+            loader = SMDDatasetLoader(machine_id='machine-1-1')
+        else:
+            loader = NSLKDDDatasetLoader()
+        data_dict = loader.load_data(str(data_path))
+
+        preprocessor = TimeSeriesPreprocessor(
+            window_size=data_cfg['window_size'],
+            stride=data_cfg['stride'],
+            normalize=data_cfg['normalize'],
+        )
+        test_norm = preprocessor.fit_transform(data_dict['test'])
+        test_windows, test_labels = preprocessor.create_windows(
+            test_norm, data_dict['test_labels']
+        )
+
+        evaluator = EvaluationPipeline(
+            model=model,
+            device=device,
+            threshold=eval_cfg.get('anomaly_threshold', 0.5),
+            auto_threshold=True,
+        )
+        metrics = evaluator.evaluate(
+            test_data=torch.FloatTensor(test_windows),
+            test_labels=test_labels,
+            batch_size=32,
+        )
+        return {
+            'f1': metrics.f1_score,
+            'auc_roc': metrics.auc_roc,
+            'auc_pr': metrics.auc_pr,
+            'precision': metrics.precision,
+            'recall': metrics.recall,
+            'inference_latency_ms': metrics.avg_latency_ms,
+        }
+
+    return train_fn, evaluate_fn
+
+
 def ablation_command(args):
     """Execute ablation study command."""
     logger.info("=" * 80)
     logger.info("SENTRYFL ABLATION STUDY")
     logger.info("=" * 80)
-    
+
     # Load configuration
     overrides = parse_overrides(args.override)
     config_dict = load_config(args.config, overrides)
-    
-    from sentryfl.utils.config import ConfigurationSystem
+
     from sentryfl.evaluation.ablation_study import AblationStudyRunner
-    
-    config = ConfigurationSystem(config_dict)
-    
+
     # Validate data path
     data_path = Path(args.data_path)
     if not data_path.exists():
         logger.error(f"Data path does not exist: {data_path}")
         sys.exit(1)
-    
+
     # Auto-detect device
     device = args.device if args.device else ('cuda' if torch.cuda.is_available() else 'cpu')
-    
-    # Create model
-    from sentryfl.models.plm_backbone import PLMAnomalyDetector
-    model_config = config.get_section('model')
-    data_config = config.get_section('data')
-    
-    if data_config['dataset'] == 'SMD':
-        input_dim = 38
-    elif data_config['dataset'] == 'NSL-KDD':
-        input_dim = 41
-    else:
-        logger.error(f"Unknown dataset: {data_config['dataset']}")
-        sys.exit(1)
-    
-    model = PLMAnomalyDetector(
-        input_dim=input_dim,
-        hidden_dim=model_config['hidden_dim'],
-        model_name=model_config['backbone'],
-        freeze_backbone=model_config['freeze_backbone']
-    )
-    
-    # Create ablation study runner
+
+    output_dir = Path(args.output).parent if args.output else Path('./ablation_results')
+
+    # Create ablation study runner from the full-system config dict
     runner = AblationStudyRunner(
-        base_config=config,
-        model=model,
-        data_path=str(data_path),
-        device=device
+        full_system_config=config_dict,
+        output_dir=str(output_dir),
     )
-    
-    # Determine which components to ablate
-    components = args.components if args.components else ['adms', 'dp', 'quantization', 'distillation']
-    
-    logger.info(f"Running ablation study for components: {components}")
-    
-    # Run ablation study
-    results = runner.run_ablation_study(
-        components_to_ablate=components,
-        num_rounds=args.num_rounds if hasattr(args, 'num_rounds') else None
+
+    # Optionally filter to a subset of ablation configurations. The --components
+    # flag names the components to ablate; map each to its "without_*" config.
+    component_map = {
+        'adms': 'without_adms',
+        'dp': 'without_dp',
+        'quantization': 'without_quantization',
+        'distillation': 'without_kd',
+        'byzantine': 'fedavg_only',
+    }
+    if args.components:
+        selected = {'full_system'} | {component_map[c] for c in args.components}
+        runner.ablation_configs = [
+            cfg for cfg in runner.ablation_configs if cfg.name in selected
+        ]
+        logger.info(f"Ablating components {args.components} -> configs {sorted(selected)}")
+
+    # Build training / evaluation callbacks
+    train_fn, evaluate_fn = _build_train_evaluate_fns(
+        args.config, data_path, device, num_rounds=args.num_rounds
     )
-    
+
+    # Run ablation studies
+    results = runner.run_all_ablations(train_fn=train_fn, evaluate_fn=evaluate_fn)
+
     # Print results
     logger.info("\n" + "=" * 80)
     logger.info("ABLATION STUDY RESULTS")
     logger.info("=" * 80)
-    
-    for config_name, metrics in results.items():
-        logger.info(f"\n{config_name}:")
-        logger.info(f"  F1-Score:  {metrics['f1_score']:.4f}")
-        logger.info(f"  AUC-ROC:   {metrics['auc_roc']:.4f}")
-        logger.info(f"  AUC-PR:    {metrics['auc_pr']:.4f}")
-    
+    for res in results:
+        logger.info(f"\n{res.config_name}:")
+        logger.info(f"  F1-Score:  {res.f1_score:.4f}")
+        logger.info(f"  AUC-ROC:   {res.auc_roc:.4f}")
+        logger.info(f"  AUC-PR:    {res.auc_pr:.4f}")
     logger.info("=" * 80)
-    
-    # Save results if output path specified
+
+    # Generate comparison table (per-config JSON already saved by the runner)
+    table = runner.generate_comparison_table(results)
     if args.output:
         output_path = Path(args.output)
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        
-        import json
-        with open(output_path, 'w') as f:
-            json.dump(results, f, indent=2)
-        logger.info(f"Ablation results saved to {output_path}")
-    
-    # Generate comparison plots
-    runner.generate_comparison_plots(
-        results=results,
-        save_dir=Path(args.output).parent if args.output else Path('./ablation_plots')
-    )
+        table.to_csv(output_path.with_suffix('.csv'), index=False)
+        logger.info(f"Ablation comparison table saved to {output_path.with_suffix('.csv')}")
 
 
 def baseline_command(args):
@@ -406,75 +499,68 @@ def baseline_command(args):
     logger.info("=" * 80)
     logger.info("SENTRYFL BASELINE COMPARISON")
     logger.info("=" * 80)
-    
+
     # Load configuration
     overrides = parse_overrides(args.override)
     config_dict = load_config(args.config, overrides)
-    
-    from sentryfl.utils.config import ConfigurationSystem
-    from sentryfl.evaluation.baseline_models import BaselineComparison
-    
-    config = ConfigurationSystem(config_dict)
-    
+
+    from sentryfl.evaluation.baseline_models import BaselineModelRunner
+
     # Validate data path
     data_path = Path(args.data_path)
     if not data_path.exists():
         logger.error(f"Data path does not exist: {data_path}")
         sys.exit(1)
-    
+
     # Auto-detect device
     device = args.device if args.device else ('cuda' if torch.cuda.is_available() else 'cpu')
-    
+
+    output_dir = Path(args.output).parent if args.output else Path('./baseline_results')
+
+    # Build training / evaluation callbacks (evaluate_fn also loads the test set
+    # the runner needs for identical-test-set evaluation).
+    train_fn, evaluate_fn = _build_train_evaluate_fns(
+        args.config, data_path, device, num_rounds=args.num_rounds
+    )
+
     # Create baseline comparison runner
-    baseline_runner = BaselineComparison(
-        config=config,
-        data_path=str(data_path),
-        device=device
+    baseline_runner = BaselineModelRunner(
+        base_config=config_dict,
+        test_data=str(data_path),
+        output_dir=str(output_dir),
     )
-    
-    # Determine which baselines to run
-    baselines = args.baselines if args.baselines else ['pefad', 'centralized', 'local', 'fedavg']
-    
-    logger.info(f"Running baseline comparisons: {baselines}")
-    
+
+    # Optionally filter to a subset of baselines (note: 'local' maps to 'local_only')
+    if args.baselines:
+        name_map = {'local': 'local_only'}
+        selected = {name_map.get(b, b) for b in args.baselines}
+        baseline_runner.baseline_configs = [
+            cfg for cfg in baseline_runner.baseline_configs if cfg.name in selected
+        ]
+        logger.info(f"Running baselines: {sorted(selected)}")
+
     # Run baseline comparisons
-    results = baseline_runner.run_baseline_comparison(
-        baselines_to_run=baselines,
-        num_rounds=args.num_rounds if hasattr(args, 'num_rounds') else None
-    )
-    
+    results = baseline_runner.run_all_baselines(train_fn=train_fn, evaluate_fn=evaluate_fn)
+
     # Print results
     logger.info("\n" + "=" * 80)
     logger.info("BASELINE COMPARISON RESULTS")
     logger.info("=" * 80)
-    
-    for baseline_name, metrics in results.items():
-        logger.info(f"\n{baseline_name}:")
-        logger.info(f"  F1-Score:   {metrics['f1_score']:.4f}")
-        logger.info(f"  AUC-ROC:    {metrics['auc_roc']:.4f}")
-        logger.info(f"  Precision:  {metrics['precision']:.4f}")
-        logger.info(f"  Recall:     {metrics['recall']:.4f}")
-        
-        if 'communication_cost' in metrics:
-            logger.info(f"  Comm Cost:  {metrics['communication_cost']:.2e} bytes")
-    
+    for res in results:
+        logger.info(f"\n{res.baseline_name}:")
+        logger.info(f"  F1-Score:   {res.f1_score:.4f}")
+        logger.info(f"  AUC-ROC:    {res.auc_roc:.4f}")
+        logger.info(f"  Precision:  {res.precision:.4f}")
+        logger.info(f"  Recall:     {res.recall:.4f}")
     logger.info("=" * 80)
-    
-    # Save results if output path specified
+
+    # Generate comparison table (per-baseline JSON already saved by the runner)
+    table = baseline_runner.generate_comparison_table(results)
     if args.output:
         output_path = Path(args.output)
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        
-        import json
-        with open(output_path, 'w') as f:
-            json.dump(results, f, indent=2)
-        logger.info(f"Baseline results saved to {output_path}")
-    
-    # Generate comparison plots
-    baseline_runner.generate_comparison_plots(
-        results=results,
-        save_dir=Path(args.output).parent if args.output else Path('./baseline_plots')
-    )
+        table.to_csv(output_path.with_suffix('.csv'), index=False)
+        logger.info(f"Baseline comparison table saved to {output_path.with_suffix('.csv')}")
 
 
 def create_parser():

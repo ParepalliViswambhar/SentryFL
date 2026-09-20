@@ -5,7 +5,6 @@ services:
       dockerfile: Dockerfile
     environment:
       PYTHONUNBUFFERED: '1'
-      DATABASE_URL: postgresql://${POSTGRES_USER:-sentryfl}:${POSTGRES_PASSWORD:-sentryfl}@postgres:5432/${POSTGRES_DB:-sentryfl}
       REDIS_URL: redis://redis:6379/0
     healthcheck:
       test: ["CMD", "python", "-c", "from urllib.request import urlopen; urlopen('http://localhost:5000/health', timeout=3)"]
@@ -16,8 +15,6 @@ services:
     expose:
       - '5000'
     depends_on:
-      postgres:
-        condition: service_healthy
       redis:
         condition: service_healthy
     networks: [sentryfl]
@@ -34,6 +31,7 @@ services:
       JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env for deployment}
       API_SERVER_URL: http://api-server:3000
       CACHE_TTL_SECONDS: ${CACHE_TTL_SECONDS:-300}
+      MONGODB_URI: mongodb://${MONGO_USER:-sentryfl}:${MONGO_PASSWORD:-sentryfl}@mongo:27017/${MONGO_DB:-sentryfl}?authSource=admin
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://localhost:3000/health').then(r => { if (!r.ok) process.exit(1); }).catch(() => process.exit(1))"]
       interval: 30s
@@ -45,7 +43,7 @@ services:
     depends_on:
       python-backend:
         condition: service_healthy
-      redis:
+      mongo:
         condition: service_healthy
     networks: [sentryfl]
 
@@ -67,22 +65,23 @@ services:
         condition: service_healthy
     networks: [sentryfl]
 
-  postgres:
+  mongo:
     build:
-      context: ./docker/postgres
+      context: ./docker/mongo
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:-sentryfl}
-      POSTGRES_USER: ${POSTGRES_USER:-sentryfl}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-sentryfl}
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USER:-sentryfl}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD:-sentryfl}
+      MONGO_INITDB_DATABASE: ${MONGO_DB:-sentryfl}
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 20s
     volumes:
-      - postgres-data:/var/lib/postgresql/data
+      - mongo-data:/data/db
     expose:
-      - '5432'
+      - '27017'
     networks: [sentryfl]
 
   redis:
@@ -121,7 +120,7 @@ services:
     networks: [sentryfl]
 
 volumes:
-  postgres-data:
+  mongo-data:
   redis-data:
   nginx-certs:
 

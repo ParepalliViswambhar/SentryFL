@@ -1,14 +1,14 @@
 /**
  * Audit Service
- * Logs user actions for audit trail
+ *
+ * Logs user actions to an append-only audit trail backed by MongoDB
+ * (Mongoose). All read/write methods are asynchronous. Record shape matches
+ * the previous in-memory implementation so consumers need no field changes.
+ *
  * Requirements: 38.10
  */
 
-const { v4: uuidv4 } = require('uuid');
-
-// In-memory audit log storage
-// In production, this should be replaced with a database or log aggregation service
-const auditLogs = [];
+const AuditLog = require('../db/models/AuditLog');
 
 /**
  * Log types for different user actions
@@ -30,21 +30,12 @@ const AuditActionType = {
 };
 
 /**
- * Log a user action to the audit trail
+ * Log a user action to the audit trail.
  *
- * @param {Object} params - Audit log parameters
- * @param {string} params.userId - User ID performing the action
- * @param {string} params.username - Username performing the action
- * @param {string} params.action - Action type (use AuditActionType constants)
- * @param {string} params.resourceType - Type of resource affected (e.g., 'experiment', 'config')
- * @param {string} params.resourceId - ID of the affected resource
- * @param {Object} params.metadata - Additional metadata about the action
- * @param {string} params.ipAddress - IP address of the user
- * @param {boolean} params.success - Whether the action succeeded
- * @param {string} params.errorMessage - Error message if action failed
- * @returns {Object} Created audit log entry
+ * @param {Object} params - Audit log parameters (see field docs below)
+ * @returns {Promise<Object>} Created audit log entry
  */
-const logAction = ({
+const logAction = async ({
   userId,
   username,
   action,
@@ -55,9 +46,7 @@ const logAction = ({
   success = true,
   errorMessage = null,
 }) => {
-  const auditLog = {
-    logId: uuidv4(),
-    timestamp: new Date().toISOString(),
+  const doc = await AuditLog.create({
     userId,
     username,
     action,
@@ -67,9 +56,9 @@ const logAction = ({
     ipAddress,
     success,
     errorMessage,
-  };
+  });
 
-  auditLogs.push(auditLog);
+  const auditLog = doc.toPublicObject();
 
   // Log to console in development
   if (process.env.NODE_ENV !== 'production') {
@@ -86,20 +75,12 @@ const logAction = ({
 };
 
 /**
- * Get audit logs with filtering and pagination
+ * Get audit logs with filtering and pagination.
  *
  * @param {Object} filters - Filter options
- * @param {string} filters.userId - Filter by user ID
- * @param {string} filters.action - Filter by action type
- * @param {string} filters.resourceType - Filter by resource type
- * @param {string} filters.resourceId - Filter by resource ID
- * @param {string} filters.startDate - Filter logs after this date (ISO string)
- * @param {string} filters.endDate - Filter logs before this date (ISO string)
- * @param {number} filters.limit - Maximum number of logs to return
- * @param {number} filters.offset - Number of logs to skip
- * @returns {Object} Filtered audit logs with pagination info
+ * @returns {Promise<Object>} Filtered audit logs with pagination info
  */
-const getAuditLogs = ({
+const getAuditLogs = async ({
   userId = null,
   action = null,
   resourceType = null,
@@ -109,44 +90,29 @@ const getAuditLogs = ({
   limit = 100,
   offset = 0,
 } = {}) => {
-  let filteredLogs = [...auditLogs];
+  const query = {};
 
-  // Apply filters
-  if (userId) {
-    filteredLogs = filteredLogs.filter((log) => log.userId === userId);
+  if (userId) query.userId = userId;
+  if (action) query.action = action;
+  if (resourceType) query.resourceType = resourceType;
+  if (resourceId) query.resourceId = resourceId;
+
+  if (startDate || endDate) {
+    query.timestamp = {};
+    if (startDate) query.timestamp.$gte = new Date(startDate).toISOString();
+    if (endDate) query.timestamp.$lte = new Date(endDate).toISOString();
   }
 
-  if (action) {
-    filteredLogs = filteredLogs.filter((log) => log.action === action);
-  }
+  const total = await AuditLog.countDocuments(query);
 
-  if (resourceType) {
-    filteredLogs = filteredLogs.filter((log) => log.resourceType === resourceType);
-  }
-
-  if (resourceId) {
-    filteredLogs = filteredLogs.filter((log) => log.resourceId === resourceId);
-  }
-
-  if (startDate) {
-    const start = new Date(startDate);
-    filteredLogs = filteredLogs.filter((log) => new Date(log.timestamp) >= start);
-  }
-
-  if (endDate) {
-    const end = new Date(endDate);
-    filteredLogs = filteredLogs.filter((log) => new Date(log.timestamp) <= end);
-  }
-
-  // Sort by timestamp (most recent first)
-  filteredLogs.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-
-  // Apply pagination
-  const total = filteredLogs.length;
-  const paginatedLogs = filteredLogs.slice(offset, offset + limit);
+  // Sort by timestamp (most recent first), then paginate.
+  const docs = await AuditLog.find(query)
+    .sort({ timestamp: -1 })
+    .skip(offset)
+    .limit(limit);
 
   return {
-    logs: paginatedLogs,
+    logs: docs.map((doc) => doc.toPublicObject()),
     total,
     limit,
     offset,
@@ -155,72 +121,65 @@ const getAuditLogs = ({
 };
 
 /**
- * Get audit logs for a specific experiment
+ * Get audit logs for a specific experiment.
  *
  * @param {string} experimentId - Experiment ID
- * @param {number} limit - Maximum number of logs to return
- * @param {number} offset - Number of logs to skip
- * @returns {Object} Audit logs for the experiment
+ * @param {number} [limit=100] - Max logs to return
+ * @param {number} [offset=0] - Logs to skip
+ * @returns {Promise<Object>} Audit logs for the experiment
  */
-const getExperimentAuditLogs = (experimentId, limit = 100, offset = 0) => {
-  return getAuditLogs({
-    resourceType: 'experiment',
-    resourceId: experimentId,
-    limit,
-    offset,
-  });
-};
+const getExperimentAuditLogs = (experimentId, limit = 100, offset = 0) =>
+  getAuditLogs({ resourceType: 'experiment', resourceId: experimentId, limit, offset });
 
 /**
- * Get audit logs for a specific user
+ * Get audit logs for a specific user.
  *
  * @param {string} userId - User ID
- * @param {number} limit - Maximum number of logs to return
- * @param {number} offset - Number of logs to skip
- * @returns {Object} Audit logs for the user
+ * @param {number} [limit=100] - Max logs to return
+ * @param {number} [offset=0] - Logs to skip
+ * @returns {Promise<Object>} Audit logs for the user
  */
-const getUserAuditLogs = (userId, limit = 100, offset = 0) => {
-  return getAuditLogs({
-    userId,
-    limit,
-    offset,
-  });
-};
+const getUserAuditLogs = (userId, limit = 100, offset = 0) =>
+  getAuditLogs({ userId, limit, offset });
 
 /**
- * Clear all audit logs (for testing purposes)
- */
-const clearAuditLogs = () => {
-  auditLogs.length = 0;
-};
-
-/**
- * Get audit log statistics
+ * Clear all audit logs. Intended for tests.
  *
- * @returns {Object} Statistics about audit logs
+ * @returns {Promise<void>}
  */
-const getAuditStats = () => {
+const clearAuditLogs = async () => {
+  await AuditLog.deleteMany({});
+};
+
+/**
+ * Get audit log statistics.
+ *
+ * @returns {Promise<Object>} Statistics about audit logs
+ */
+const getAuditStats = async () => {
+  const docs = await AuditLog.find().sort({ timestamp: -1 });
+
   const actionCounts = {};
   const userCounts = {};
-  const successCount = auditLogs.filter((log) => log.success).length;
-  const failureCount = auditLogs.filter((log) => !log.success).length;
+  let successCount = 0;
+  let failureCount = 0;
 
-  auditLogs.forEach((log) => {
-    // Count by action
+  docs.forEach((log) => {
+    if (log.success) successCount += 1;
+    else failureCount += 1;
     actionCounts[log.action] = (actionCounts[log.action] || 0) + 1;
-
-    // Count by user
     userCounts[log.username] = (userCounts[log.username] || 0) + 1;
   });
 
   return {
-    totalLogs: auditLogs.length,
+    totalLogs: docs.length,
     successCount,
     failureCount,
     actionCounts,
     userCounts,
-    oldestLog: auditLogs.length > 0 ? auditLogs[auditLogs.length - 1].timestamp : null,
-    newestLog: auditLogs.length > 0 ? auditLogs[0].timestamp : null,
+    // docs are sorted newest-first
+    oldestLog: docs.length > 0 ? docs[docs.length - 1].timestamp : null,
+    newestLog: docs.length > 0 ? docs[0].timestamp : null,
   };
 };
 

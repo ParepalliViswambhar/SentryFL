@@ -55,11 +55,11 @@ pip install -r requirements.txt
 
 ### Docker Compose Deployment
 
-The complete deployment includes the Python ML backend, Node.js API server, React production server, PostgreSQL, Redis, and an Nginx HTTP/HTTPS gateway.
+The complete deployment includes the Python ML backend, Node.js API server, React production server, MongoDB, Redis, and an Nginx HTTP/HTTPS gateway.
 
 ```bash
 cp .env.example .env
-# Edit .env and set JWT_SECRET and POSTGRES_PASSWORD
+# Edit .env and set JWT_SECRET and MONGO_PASSWORD
 docker compose up --build -d
 ```
 

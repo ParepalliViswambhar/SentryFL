@@ -16,7 +16,8 @@ The API Server (Tier 2) provides RESTful and WebSocket APIs for:
 This server acts as middleware with the following responsibilities:
 - **Request Routing**: Routes frontend requests to appropriate Python backend endpoints
 - **Response Transformation**: Transforms backend responses to frontend-friendly formats
-- **Caching**: Caches frequently accessed data (metrics, model info)
+- **Persistence**: Stores users, audit logs, and configuration in MongoDB (via Mongoose)
+- **Caching**: Caches frequently accessed data (metrics, model info) in-process with node-cache
 - **Authentication**: JWT-based authentication for secure access
 - **WebSocket Management**: Real-time bidirectional communication for training updates
 - **Error Handling**: Graceful error handling and user-friendly error messages
@@ -41,7 +42,18 @@ api-server/
 
 - Node.js >= 18.0.0
 - npm >= 9.0.0
+- MongoDB reachable via `MONGODB_URI` (defaults to `mongodb://127.0.0.1:27017/sentryfl`)
 - Python backend running on http://localhost:5000 (configurable)
+
+## Data storage
+
+Users, audit logs, and saved configurations are persisted in MongoDB through
+Mongoose (`src/db/`). Set the connection string with the `MONGODB_URI`
+environment variable. On first startup a default admin user (`admin` /
+`admin123`) is seeded unless `SEED_DEFAULT_ADMIN=false`; override the seed with
+`DEFAULT_ADMIN_USERNAME` / `DEFAULT_ADMIN_PASSWORD`. Tests run against an
+in-memory MongoDB (`mongodb-memory-server`), so no external database is needed
+to run the suite.
 
 ## Installation
 
