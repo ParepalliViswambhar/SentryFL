@@ -145,13 +145,20 @@ def train_command(args):
         sys.exit(1)
     
     logger.info(f"Creating PLM anomaly detection model (input_dim={input_dim})...")
+    pe_cfg = config.get_section('parameter_efficiency')
+    peft_method = pe_cfg.get('method', 'adms' if pe_cfg.get('adms_enabled') else 'full_head')
     model = PLMAnomalyDetector(
         input_dim=input_dim,
         hidden_dim=model_config['hidden_dim'],
         model_name=model_config['backbone'],
         freeze_backbone=model_config['freeze_backbone'],
-        dropout=model_config.get('dropout', 0.1)
+        dropout=model_config.get('dropout', 0.1),
+        peft_method=peft_method,
+        lora_rank=pe_cfg.get('lora_rank', 8),
+        lora_alpha=pe_cfg.get('lora_alpha', 16),
+        lora_targets=pe_cfg.get('lora_targets'),
     )
+    logger.info(f"Parameter-efficiency method: {peft_method}")
     
     # Create trainer
     trainer = create_trainer_from_config(
@@ -335,12 +342,18 @@ def _build_train_evaluate_fns(config_path, data_path, device, num_rounds=None):
         data_cfg = config.get('data', {})
         input_dim = _input_dim_for(data_cfg.get('dataset'))
 
+        pe_cfg = config.get('parameter_efficiency', {})
+        peft_method = pe_cfg.get('method', 'adms' if pe_cfg.get('adms_enabled') else 'full_head')
         model = PLMAnomalyDetector(
             input_dim=input_dim,
             hidden_dim=model_cfg.get('hidden_dim', 128),
             model_name=model_cfg.get('backbone', 'bert-base-uncased'),
             freeze_backbone=model_cfg.get('freeze_backbone', True),
             dropout=model_cfg.get('dropout', 0.1),
+            peft_method=peft_method,
+            lora_rank=pe_cfg.get('lora_rank', 8),
+            lora_alpha=pe_cfg.get('lora_alpha', 16),
+            lora_targets=pe_cfg.get('lora_targets'),
         )
 
         # create_trainer_from_config reloads config from disk; apply the

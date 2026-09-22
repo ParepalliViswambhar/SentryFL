@@ -9,11 +9,14 @@ Validates Requirements: 11.1, 11.2, 11.3, 11.4, 11.5, 11.8, 11.9, 11.10, 11.11
 """
 
 import time
+import warnings
 import numpy as np
 import torch
 import torch.nn as nn
 from typing import Dict, List, Tuple, Optional, Any, Union
 from dataclasses import dataclass, field
+
+from .tsad_metrics import point_adjust_f1, pa_k_sweep, affiliation_pr
 import matplotlib.pyplot as plt
 import seaborn as sns
 from sklearn.metrics import (
@@ -45,7 +48,15 @@ class EvaluationMetrics:
     total_samples: int
     threshold: float
     accuracy: float = 0.0
-    
+    # v2: honest-evaluation additions (all optional / additive for backward compat)
+    threshold_source: str = "unknown"       # "fixed" | "val" | "unsupervised" | "test_oracle"
+    pa_f1: float = 0.0                        # point-adjusted F1 (Xu 2018)
+    pa_precision: float = 0.0
+    pa_recall: float = 0.0
+    affiliation_precision: float = 0.0        # Huet 2021 (or documented approximation)
+    affiliation_recall: float = 0.0
+    pa_k_curve: Dict[float, float] = field(default_factory=dict)  # PA%K sweep: K -> F1
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert metrics to dictionary format"""
         return {
@@ -62,7 +73,14 @@ class EvaluationMetrics:
             'false_negatives': int(self.false_negatives),
             'avg_latency_ms': float(self.avg_latency_ms),
             'total_samples': int(self.total_samples),
-            'threshold': float(self.threshold)
+            'threshold': float(self.threshold),
+            'threshold_source': str(self.threshold_source),
+            'pa_f1': float(self.pa_f1),
+            'pa_precision': float(self.pa_precision),
+            'pa_recall': float(self.pa_recall),
+            'affiliation_precision': float(self.affiliation_precision),
+            'affiliation_recall': float(self.affiliation_recall),
+            'pa_k_curve': {float(k): float(v) for k, v in self.pa_k_curve.items()},
         }
 
 
@@ -103,24 +121,39 @@ class EvaluationPipeline:
         model: nn.Module,
         device: str = 'cpu',
         threshold: Optional[float] = None,
-        auto_threshold: bool = True
+        auto_threshold: bool = True,
+        threshold_split: str = 'val'
     ):
         """
         Initialize evaluation pipeline
-        
+
         Args:
             model: Trained anomaly detection model
             device: Device for computation ('cpu' or 'cuda')
             threshold: Fixed threshold for anomaly classification (optional)
-            auto_threshold: If True, automatically determine optimal threshold
+            auto_threshold: If True, automatically determine a threshold
+            threshold_split: v2 honesty control for auto-threshold selection when no
+                fixed threshold and no validation split are supplied:
+                - "val" (default): use a LEAKAGE-FREE unsupervised threshold derived
+                  from the test SCORES only (never the test labels).
+                - "test_oracle": fit the threshold on the test labels (optimistic
+                  oracle upper bound). Explicitly labeled and warned; use only for
+                  reporting an upper bound, never as the headline result.
+                In all modes, passing ``val_data``/``val_labels`` to ``evaluate`` fits
+                the threshold on validation, which is the recommended honest path.
         """
+        if threshold_split not in ('val', 'test_oracle'):
+            raise ValueError(
+                f"threshold_split must be 'val' or 'test_oracle', got {threshold_split!r}"
+            )
         self.model = model
         self.device = device
         self.model.to(device)
         self.model.eval()
-        
+
         self.threshold = threshold
         self.auto_threshold = auto_threshold
+        self.threshold_split = threshold_split
         
         # Cache for computed scores and predictions
         self._scores_cache: Optional[np.ndarray] = None
@@ -398,54 +431,134 @@ class EvaluationPipeline:
         avg_latency = np.mean(self._latencies_cache)
         return avg_latency
     
+    def unsupervised_threshold(self, scores: np.ndarray, contamination: float = 0.05) -> float:
+        """
+        Leakage-free threshold from the scores alone (no labels).
+
+        Selects the (1 - contamination) quantile of the anomaly scores, i.e. flags
+        the top ``contamination`` fraction as anomalies. Uses NO labels, so it can
+        be applied to the test set without data leakage. Used as the honest default
+        when neither a fixed threshold nor a validation split is provided.
+
+        Args:
+            scores: Anomaly scores [N]
+            contamination: Expected anomaly fraction (default 5%)
+
+        Returns:
+            Threshold value.
+        """
+        contamination = float(min(max(contamination, 1e-4), 0.5))
+        return float(np.quantile(scores, 1.0 - contamination))
+
+    def _select_threshold(
+        self,
+        scores: np.ndarray,
+        test_labels: np.ndarray,
+        threshold: Optional[float],
+        val_scores: Optional[np.ndarray],
+        val_labels: Optional[np.ndarray],
+        contamination: float,
+    ) -> Tuple[float, str]:
+        """Resolve the classification threshold and record its provenance.
+
+        Priority (honest by design): explicit fixed threshold > validation-fit >
+        configured fixed (self.threshold) > unsupervised score-based (default) or
+        test-oracle (opt-in, warned). Test labels never enter selection unless
+        threshold_split == 'test_oracle'.
+        """
+        if threshold is not None:
+            return float(threshold), "fixed"
+        if val_scores is not None and val_labels is not None:
+            return float(self.determine_optimal_threshold(val_scores, val_labels, method='f1')), "val"
+        if not self.auto_threshold and self.threshold is not None:
+            return float(self.threshold), "fixed"
+        if self.threshold is not None:
+            # A threshold was configured at init; prefer it over touching test labels.
+            return float(self.threshold), "fixed"
+        if self.threshold_split == "test_oracle":
+            warnings.warn(
+                "EvaluationPipeline: fitting the threshold on TEST labels "
+                "(threshold_split='test_oracle'). This is an optimistic oracle upper "
+                "bound and must not be reported as the headline metric. Provide "
+                "val_data/val_labels for an honest threshold.",
+                stacklevel=3,
+            )
+            return float(self.determine_optimal_threshold(scores, test_labels, method='f1')), "test_oracle"
+        # Default honest path: unsupervised, no labels used.
+        return self.unsupervised_threshold(scores, contamination=contamination), "unsupervised"
+
     def evaluate(
         self,
         test_data: Union[torch.Tensor, torch.utils.data.DataLoader],
         test_labels: np.ndarray,
         batch_size: int = 32,
-        threshold: Optional[float] = None
+        threshold: Optional[float] = None,
+        val_data: Optional[Union[torch.Tensor, torch.utils.data.DataLoader]] = None,
+        val_labels: Optional[np.ndarray] = None,
+        contamination: float = 0.05,
     ) -> EvaluationMetrics:
         """
-        Complete evaluation pipeline
-        
+        Complete evaluation pipeline (v2: honest thresholding + TSAD metrics).
+
+        Threshold selection order (test labels are NOT used unless
+        threshold_split='test_oracle'):
+          1. explicit ``threshold`` argument (fixed);
+          2. ``val_data``/``val_labels`` -> fit on validation (recommended);
+          3. a threshold configured at init (fixed);
+          4. default: unsupervised, score-based (leakage-free); or, if
+             threshold_split='test_oracle', fit on test labels (warned).
+
         Args:
             test_data: Test dataset
             test_labels: True labels [N]
             batch_size: Batch size for inference
-            threshold: Classification threshold (auto-determined if None and auto_threshold=True)
-        
+            threshold: Fixed classification threshold (optional)
+            val_data: Optional validation dataset for honest threshold fitting
+            val_labels: Optional validation labels
+            contamination: Expected anomaly fraction for the unsupervised default
+
         Returns:
-            EvaluationMetrics object with all computed metrics
+            EvaluationMetrics object with point-wise, point-adjusted, PA%K, and
+            affiliation metrics, plus ``threshold_source`` provenance.
         """
-        # Compute anomaly scores
+        # Compute test anomaly scores
         scores = self.compute_anomaly_scores(test_data, batch_size)
-        
-        # Determine threshold if needed
-        if threshold is None and self.auto_threshold:
-            threshold = self.determine_optimal_threshold(scores, test_labels, method='f1')
-            self.threshold = threshold
-        elif threshold is not None:
-            self.threshold = threshold
-        
+
+        # Fit threshold on validation scores if a validation split is provided
+        val_scores = None
+        if val_data is not None and val_labels is not None:
+            val_scores = self.compute_anomaly_scores(val_data, batch_size)
+            # compute_anomaly_scores caches; recompute test scores for classification
+            scores = self.compute_anomaly_scores(test_data, batch_size)
+
+        # Resolve threshold and its provenance (leakage-free by default)
+        chosen_threshold, threshold_source = self._select_threshold(
+            scores, test_labels, threshold, val_scores, val_labels, contamination
+        )
+        self.threshold = chosen_threshold
+
         # Classify anomalies
         predictions = self.classify_anomalies(scores, self.threshold)
-        
-        # Compute classification metrics
+
+        # Point-wise classification metrics
         precision, recall, f1 = self.compute_classification_metrics(test_labels, predictions)
-        
-        # Compute AUC scores
+
+        # AUC scores (threshold-independent)
         auc_roc = self.compute_auc_roc(test_labels, scores)
         auc_pr = self.compute_auc_pr(test_labels, scores)
-        
-        # Compute confusion matrix
+
+        # Confusion matrix
         cm, tp, fp, tn, fn = self.compute_confusion_matrix(test_labels, predictions)
-        
-        # Compute latency
+
+        # Latency + accuracy
         avg_latency = self.compute_latency_metrics()
-        
-        # Compute accuracy
         accuracy = (tp + tn) / (tp + tn + fp + fn) if (tp + tn + fp + fn) > 0 else 0.0
-        
+
+        # v2 TSAD metrics (reported alongside point-wise; PA is optimistic by design)
+        pa = point_adjust_f1(test_labels, predictions)
+        aff = affiliation_pr(test_labels, predictions)
+        pa_k = pa_k_sweep(test_labels, predictions)
+
         metrics = EvaluationMetrics(
             precision=precision,
             recall=recall,
@@ -460,9 +573,16 @@ class EvaluationPipeline:
             avg_latency_ms=avg_latency,
             total_samples=len(test_labels),
             threshold=self.threshold,
-            accuracy=accuracy
+            accuracy=accuracy,
+            threshold_source=threshold_source,
+            pa_f1=pa["f1"],
+            pa_precision=pa["precision"],
+            pa_recall=pa["recall"],
+            affiliation_precision=aff["precision"],
+            affiliation_recall=aff["recall"],
+            pa_k_curve=pa_k,
         )
-        
+
         return metrics
     
     def compare_with_baselines(

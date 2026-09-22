@@ -205,12 +205,24 @@ class TestOpacusEngineAttachment:
 class TestNoiseMultiplierComputation:
     """Test noise multiplier computation - Validates Requirement 5.5"""
     
-    def test_noise_multiplier_various_epsilon_values(self, dummy_data_loader):
+    def test_noise_multiplier_various_epsilon_values(self):
         """Test noise multiplier computation for various epsilon values"""
         # Requirements: 5.8 - Support configurable epsilon (0.1, 1.0, 10.0)
-        epsilon_values = [1.0, 5.0, 10.0]  # Adjusted to avoid infeasible budgets
+        #
+        # Uses a realistic sample rate (large dataset, small batch -> q ~= 0.03).
+        # The default accountant is now PRV (tighter than RDP); PRV's numerical
+        # PLD solver is only well-conditioned at realistic noise levels. The tiny
+        # 100-sample/batch-16 fixture (q = 0.16) pushes PRV past its resolvable
+        # range at high epsilon, where the module correctly raises (see
+        # test_noise_multiplier_prv_out_of_range_raises). The monotonicity
+        # property tested here holds for any realistic operating point.
+        X = torch.randn(2000, 10)
+        y = torch.randint(0, 2, (2000,))
+        loader = DataLoader(TensorDataset(X, y), batch_size=64, shuffle=True)
+
+        epsilon_values = [1.0, 5.0, 10.0]
         noise_multipliers = []
-        
+
         for epsilon in epsilon_values:
             model = SimpleModel()
             dp_module = DifferentialPrivacyModule(
@@ -218,18 +230,42 @@ class TestNoiseMultiplierComputation:
                 epsilon=epsilon,
                 delta=1e-5
             )
-            
-            noise_mult = dp_module._compute_noise_multiplier(
-                dummy_data_loader,
-                epochs=10
-            )
-            
+
+            noise_mult = dp_module._compute_noise_multiplier(loader, epochs=10)
+
             noise_multipliers.append(noise_mult)
             assert noise_mult > 0, f"Noise multiplier should be positive for ε={epsilon}"
-        
+
         # Smaller epsilon (more privacy) should require larger noise
         assert noise_multipliers[0] > noise_multipliers[1] > noise_multipliers[2], \
             "Noise multiplier should decrease as epsilon increases"
+
+    def test_noise_multiplier_default_accountant_is_prv(self):
+        """The module defaults to the PRV accountant (tighter than RDP)."""
+        # Requirements: FR-1.6 (v2) - consistent, tight accounting
+        model = SimpleModel()
+        dp_module = DifferentialPrivacyModule(model=model, epsilon=1.0, delta=1e-5)
+        assert dp_module.accountant == "prv"
+
+    def test_compare_accountants_prv_tighter_than_rdp(self):
+        """PRV reports a smaller (tighter) epsilon than RDP for the same run."""
+        # Requirements: FR-1.6 (v2), experiment E4
+        result = DifferentialPrivacyModule.compare_accountants(
+            noise_multiplier=1.1, sample_rate=0.01, steps=1000, delta=1e-5
+        )
+        assert result["prv"] <= result["rdp"] + 1e-9
+        assert result["ratio_rdp_over_prv"] >= 1.0
+
+    def test_noise_multiplier_prv_out_of_range_raises(self):
+        """PRV cannot size noise at an extreme low-noise point; module raises clearly."""
+        # Requirements: 18.8 - infeasible privacy params raise a descriptive error.
+        # q = 0.16 (tiny dataset) with epsilon=10 needs sub-resolvable noise for PRV.
+        X = torch.randn(100, 10)
+        y = torch.randint(0, 2, (100,))
+        loader = DataLoader(TensorDataset(X, y), batch_size=16, shuffle=True)
+        dp_module = DifferentialPrivacyModule(model=SimpleModel(), epsilon=10.0, delta=1e-5)
+        with pytest.raises(ValueError):
+            dp_module._compute_noise_multiplier(loader, epochs=10)
     
     def test_noise_multiplier_various_delta_values(self, dummy_data_loader):
         """Test noise multiplier with different delta values"""

@@ -187,28 +187,52 @@ class ADMSModule:
         
         Returns:
             Dictionary containing:
-                - total_parameters: Total number of model parameters
+                - total_parameters: Total number of (trainable) parameters considered
                 - selected_parameters: Number of selected parameters
                 - selection_ratio: Actual selection ratio
-                - communication_reduction: Fraction of communication saved
-        
-        Requirements: 3.8
+                - communication_reduction: THEORETICAL fraction of communication saved
+                  (see honesty note below)
+                - communication_reduction_is_theoretical: always True for ADMS
+                - communication_reduction_note: why the theoretical figure is not
+                  the wire reduction
+
+        Honesty note (v2): ``apply_mask`` only ZEROES the gradients of non-selected
+        parameters (element-wise multiply); it does not sparse-encode the update.
+        A dense tensor of zeros costs the same bytes to transmit as a dense tensor
+        of values, so the ACTUAL communication reduction on the wire is ~0 unless a
+        sparse (index, value) encoding is added. The figure below is therefore the
+        theoretical selection sparsity over the trainable parameter set, NOT a
+        measured wire saving. Use ``sentryfl.utils.comm_meter.measure_update_bytes``
+        to measure real transmitted bytes.
+
+        Requirements: 3.8; v2 FR-4.2 (honest communication accounting)
         """
         if self.parameter_mask is None:
             raise RuntimeError("Parameter mask not generated. Call generate_mask() first.")
-        
+
         total_params = sum(mask.numel() for mask in self.parameter_mask.values())
         selected_params = sum(mask.sum().item() for mask in self.parameter_mask.values())
-        
+        theoretical_reduction = (
+            1 - (selected_params / total_params) if total_params > 0 else 0.0
+        )
+
         stats = {
             'total_parameters': total_params,
             'selected_parameters': selected_params,
             'selection_ratio': selected_params / total_params if total_params > 0 else 0.0,
-            'communication_reduction': 1 - (selected_params / total_params) if total_params > 0 else 0.0
+            # Kept for backward compatibility, but explicitly THEORETICAL: masking
+            # zeroes values without sparse-encoding, so this is not a wire saving.
+            'communication_reduction': theoretical_reduction,
+            'communication_reduction_is_theoretical': True,
+            'communication_reduction_note': (
+                'Theoretical selection sparsity over trainable params. ADMS zeroes '
+                'gradients without sparse encoding, so real wire reduction is ~0. '
+                'Measure actual bytes with comm_meter.measure_update_bytes.'
+            ),
         }
-        
+
         logger.info(f"Selection Statistics: {stats}")
-        
+
         return stats
     
     def update_mask_periodically(self, anomaly_loader: DataLoader, criterion: nn.Module, 

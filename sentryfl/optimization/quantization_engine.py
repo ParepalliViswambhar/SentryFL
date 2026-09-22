@@ -471,7 +471,12 @@ class QuantizationEngine:
             fp32_model_size_mb=fp32_size_mb,
             int8_model_size_mb=int8_size_mb,
             size_reduction_percentage=size_reduction,
-            communication_reduction_percentage=size_reduction,  # Same as size reduction
+            # For a quantized model the transmitted payload IS the smaller model, so
+            # payload reduction equals model-size reduction. This is DERIVED from
+            # measured model size (not fabricated), but it is not a separate on-wire
+            # measurement of a federated update; for that, measure the actual
+            # transmitted tensors with sentryfl.utils.comm_meter.measure_update_bytes.
+            communication_reduction_percentage=size_reduction,
             quantization_error_mean=error_stats['mean'],
             quantization_error_std=error_stats['std'],
             quantization_error_max=error_stats['max'],

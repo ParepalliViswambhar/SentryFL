@@ -72,42 +72,61 @@ class AggregationServer:
         checkpoint_dir: str = './checkpoints',
         checkpoint_frequency: int = 10,
         device: str = 'cpu',
-        use_byzantine_robust: bool = False
+        use_byzantine_robust: bool = False,
+        dp_fedavg: Optional[Any] = None,
+        privacy_budget: Optional[Any] = None,
+        dp_min_clients: int = 2
     ):
         """
         Initialize aggregation server.
-        
+
         Args:
             model: Global model architecture
             checkpoint_dir: Directory for saving checkpoints
             checkpoint_frequency: Save checkpoint every N rounds
             device: Device for computation
             use_byzantine_robust: Enable Byzantine-robust aggregation
-            
-        Requirements: 7.1, 7.11
+            dp_fedavg: Optional DPFedAvgMechanism. When provided, aggregation uses
+                aggregate-level DP-FedAvg (clip client deltas + add Gaussian noise
+                once per round) instead of plain FedAvg / trimmed mean. This is the
+                v2 default privacy mechanism (see sentryfl/privacy/dp_fedavg.py).
+            privacy_budget: Optional PRVBudget stepped once per DP-FedAvg round to
+                track a single cumulative (epsilon, delta) across the federation.
+            dp_min_clients: Minimum participating clients required for a DP-FedAvg
+                round (the added noise scales as 1/num_clients; too few clients makes
+                the aggregate unusable). Ignored for non-DP aggregation.
+
+        Requirements: 7.1, 7.11; v2 FR-1.1-1.5
         """
         self.global_model = model.to(device)
         self.device = device
         self.checkpoint_frequency = checkpoint_frequency
         self.use_byzantine_robust = use_byzantine_robust
-        
+        self.dp_fedavg = dp_fedavg
+        self.privacy_budget = privacy_budget
+        self.dp_min_clients = dp_min_clients
+        # Cache of the global (trainable) params at the start of the round, used to
+        # form per-client update deltas for DP-FedAvg.
+        self._round_global: Optional[Dict[str, torch.Tensor]] = None
+
         # Setup checkpoint directory
         self.checkpoint_dir = Path(checkpoint_dir)
         self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
-        
+
         # Client update storage
         self.pending_updates: Dict[str, Dict[str, Any]] = {}
         self.aggregation_history: List[Dict[str, Any]] = []
-        
+
         # Training state
         self.current_round = 0
         self.total_clients = 0
         self.participating_clients = set()
-        
+
         logger.info(
             f"Initialized AggregationServer with checkpoint_dir={checkpoint_dir}, "
             f"checkpoint_frequency={checkpoint_frequency}, device={device}, "
-            f"byzantine_robust={use_byzantine_robust}"
+            f"byzantine_robust={use_byzantine_robust}, "
+            f"dp_fedavg={'on' if dp_fedavg is not None else 'off'}"
         )
     
     def broadcast_global_model(self, client_ids: Optional[List[str]] = None) -> Dict[str, torch.Tensor]:
@@ -137,11 +156,17 @@ class AggregationServer:
         for name, param in self.global_model.named_parameters():
             # Detach and move to CPU for transmission
             global_parameters[name] = param.detach().clone().cpu()
-        
+
+        # Cache the round's global params so DP-FedAvg can form per-client deltas
+        # (delta = client_params - global_params at broadcast time).
+        self._round_global = {
+            name: p.clone() for name, p in global_parameters.items()
+        }
+
         logger.debug(
             f"Broadcasted {len(global_parameters)} parameter tensors"
         )
-        
+
         return global_parameters
     
     def collect_client_updates(
@@ -249,20 +274,25 @@ class AggregationServer:
             f"with {len(self.pending_updates)} clients"
         )
         
+        # DP-FedAvg needs enough clients for the (1/n)-scaled noise to be usable.
+        effective_min = max(min_clients, self.dp_min_clients) if self.dp_fedavg is not None else min_clients
+
         # Check minimum client requirement
-        if len(self.pending_updates) < min_clients:
+        if len(self.pending_updates) < effective_min:
             logger.warning(
                 f"Insufficient clients for aggregation: "
-                f"{len(self.pending_updates)} < {min_clients}"
+                f"{len(self.pending_updates)} < {effective_min}"
             )
             return {
                 'round': round_num,
                 'status': 'insufficient_clients',
                 'num_clients': len(self.pending_updates)
             }
-        
-        # Choose aggregation method
-        if self.use_byzantine_robust:
+
+        # Choose aggregation method. DP-FedAvg takes precedence when configured.
+        if self.dp_fedavg is not None:
+            aggregated_params = self._dp_fedavg_aggregate()
+        elif self.use_byzantine_robust:
             aggregated_params = self._byzantine_robust_aggregate()
         else:
             aggregated_params = self._fedavg_aggregate()
@@ -274,7 +304,13 @@ class AggregationServer:
         stats = self._compute_aggregation_statistics()
         stats['round'] = round_num
         stats['num_participating_clients'] = len(self.pending_updates)
-        stats['aggregation_method'] = 'trimmed_mean' if self.use_byzantine_robust else 'fedavg'
+        if self.dp_fedavg is not None:
+            stats['aggregation_method'] = 'dp_fedavg'
+            stats.update(getattr(self, '_last_dp_stats', {}))
+        elif self.use_byzantine_robust:
+            stats['aggregation_method'] = 'trimmed_mean'
+        else:
+            stats['aggregation_method'] = 'fedavg'
         
         # Log statistics
         logger.info(
@@ -372,6 +408,80 @@ class AggregationServer:
             )
             return self._fedavg_aggregate()
     
+    def _dp_fedavg_aggregate(self) -> Dict[str, torch.Tensor]:
+        """
+        Aggregate-level DP-FedAvg: clip each client's update delta, average the
+        clipped deltas, add one Gaussian noise draw, and return the new absolute
+        global parameters (global + noised mean delta).
+
+        Steps the privacy budget once (one round = one subsampled-Gaussian
+        mechanism at the client/entity level).
+
+        Returns:
+            Dictionary of new absolute global parameters.
+
+        Requirements: v2 FR-1.1, FR-1.2, FR-1.3, FR-1.4, FR-1.5
+        """
+        logger.debug("Performing DP-FedAvg aggregation (clip delta + Gaussian noise)")
+
+        # Reference global params at round start; fall back to current model params.
+        if self._round_global is not None:
+            reference = self._round_global
+        else:
+            reference = {
+                name: p.detach().clone().cpu()
+                for name, p in self.global_model.named_parameters()
+            }
+
+        # Form per-client deltas over the parameter names the clients actually sent
+        # (adapters/head for FFA-LoRA; whatever was transmitted otherwise).
+        deltas: List[Dict[str, torch.Tensor]] = []
+        for client_id, update in self.pending_updates.items():
+            params = update['parameters']
+            delta = {}
+            for name, tensor in params.items():
+                if name in reference:
+                    delta[name] = tensor.detach().cpu() - reference[name].cpu()
+                else:
+                    # Parameter not in the broadcast reference (e.g. new adapter):
+                    # treat the reference as zero so the full value is the delta.
+                    delta[name] = tensor.detach().cpu().clone()
+            deltas.append(delta)
+
+        # Clip each delta and aggregate (mean + noise).
+        aggregated_delta, pre_clip_norms = self.dp_fedavg.clip_and_aggregate(deltas)
+
+        # Apply the noised mean delta to the reference to get new absolute params.
+        aggregated_params: Dict[str, torch.Tensor] = {}
+        for name, d in aggregated_delta.items():
+            base = reference[name].to(d.device) if name in reference else torch.zeros_like(d)
+            aggregated_params[name] = base + d
+
+        # Account one round of privacy budget.
+        self._last_dp_stats = {
+            'clip_norm': self.dp_fedavg.clip_norm,
+            'noise_multiplier': self.dp_fedavg.noise_multiplier,
+            'mean_pre_clip_norm': float(sum(pre_clip_norms) / len(pre_clip_norms)) if pre_clip_norms else 0.0,
+            'max_pre_clip_norm': float(max(pre_clip_norms)) if pre_clip_norms else 0.0,
+        }
+        if self.privacy_budget is not None:
+            self.privacy_budget.step()
+            # epsilon is undefined/infinite when noise_multiplier == 0 (no privacy);
+            # guard the accountant call so a noiseless clipping-only ablation still runs.
+            try:
+                if getattr(self.dp_fedavg, 'noise_multiplier', 0.0) > 0:
+                    self._last_dp_stats['epsilon'] = self.privacy_budget.epsilon(
+                        getattr(self.privacy_budget, 'target_delta', 1e-5)
+                    )
+                else:
+                    self._last_dp_stats['epsilon'] = float('inf')
+            except (OverflowError, ValueError) as exc:
+                logger.warning(f"Could not compute epsilon this round: {exc}")
+                self._last_dp_stats['epsilon'] = float('inf')
+
+        logger.debug("DP-FedAvg aggregation complete")
+        return aggregated_params
+
     def _update_global_model(self, aggregated_params: Dict[str, torch.Tensor]):
         """
         Update global model with aggregated parameters.
@@ -473,7 +583,13 @@ class AggregationServer:
             'aggregation_history': self.aggregation_history,
             'participating_clients': list(self.participating_clients),
             'timestamp': time.time(),
-            'metadata': metadata or {}
+            'metadata': metadata or {},
+            # Persist the federation-level privacy budget so resume keeps the
+            # cumulative (epsilon, delta) instead of silently resetting it.
+            'privacy_budget': (
+                self.privacy_budget.state_dict()
+                if self.privacy_budget is not None else None
+            ),
         }
         
         try:
@@ -507,6 +623,12 @@ class AggregationServer:
             self.current_round = checkpoint['round']
             self.aggregation_history = checkpoint.get('aggregation_history', [])
             self.participating_clients = set(checkpoint.get('participating_clients', []))
+
+            # Restore the privacy budget (cumulative epsilon) if present.
+            budget_state = checkpoint.get('privacy_budget')
+            if budget_state is not None:
+                from sentryfl.privacy.dp_fedavg import PRVBudget
+                self.privacy_budget = PRVBudget.from_state_dict(budget_state)
             
             logger.info(
                 f"Checkpoint loaded successfully: round {self.current_round}, "

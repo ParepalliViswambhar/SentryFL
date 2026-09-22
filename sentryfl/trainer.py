@@ -13,6 +13,7 @@ federated learning process, integrating all system modules:
 Validates Requirements: 2.1-2.10, 5.7, 7.1-7.11, 18.3
 """
 
+import copy
 import logging
 import torch
 import torch.nn as nn
@@ -28,6 +29,7 @@ from sentryfl.federated.server import AggregationServer
 from sentryfl.federated.adms import ADMSModule
 from sentryfl.privacy.differential_privacy import DifferentialPrivacyModule
 from sentryfl.evaluation.evaluation_pipeline import EvaluationPipeline
+from sentryfl.utils.comm_meter import measure_update_bytes
 from sentryfl.utils.config import ConfigurationSystem
 from sentryfl.utils.checkpoint_manager import CheckpointManager
 from sentryfl.utils.experiment_logger import ExperimentLogger
@@ -107,6 +109,21 @@ class MainTrainer:
         self.param_efficiency_config = config.get_section('parameter_efficiency')
         self.evaluation_config = config.get_section('evaluation')
         self.experiment_config = config.get_section('experiment')
+
+        # v2: resolve the privacy mechanism and parameter-efficiency method with
+        # backward-compatible defaults derived from the legacy flags.
+        privacy_enabled = self.privacy_config.get('enabled', False)
+        self.privacy_mechanism = self.privacy_config.get(
+            'mechanism', 'record_dpsgd' if privacy_enabled else 'none'
+        )
+        if not privacy_enabled:
+            self.privacy_mechanism = 'none'
+        self.peft_method = self.param_efficiency_config.get(
+            'method', 'adms' if self.param_efficiency_config.get('adms_enabled', False) else 'full_head'
+        )
+        # DP-FedAvg server-side components (built in _initialize_server).
+        self.dp_fedavg_mechanism = None
+        self.privacy_budget = None
         
         # Setup reproducibility with comprehensive seed setting (Requirements 20.11, 20.12)
         self.repro_manager = ReproducibilityManager(
@@ -162,19 +179,25 @@ class MainTrainer:
         logger.info("Step 3/6: Initializing aggregation server...")
         self._initialize_server()
         
-        # 4. Setup privacy modules
-        if self.privacy_config['enabled']:
-            logger.info("Step 4/6: Setting up differential privacy modules...")
+        # 4. Setup privacy modules. Client-side Opacus DP-SGD is only used in the
+        # legacy record-level mechanism; DP-FedAvg adds noise server-side (already
+        # configured in _initialize_server), so no per-client Opacus attach.
+        if self.privacy_mechanism == 'record_dpsgd':
+            logger.info("Step 4/6: Setting up record-level DP-SGD (Opacus) modules...")
             self._setup_privacy_modules()
+        elif self.privacy_mechanism == 'dp_fedavg':
+            logger.info("Step 4/6: Using aggregate-level DP-FedAvg (server-side noise); "
+                        "skipping client Opacus attach...")
         else:
             logger.info("Step 4/6: Differential privacy disabled, skipping...")
-        
-        # 5. Setup ADMS modules
-        if self.param_efficiency_config['adms_enabled']:
+
+        # 5. Setup ADMS modules (legacy parameter-efficiency baseline). LoRA/FFA-LoRA
+        # are baked into the model architecture at construction, not here.
+        if self.peft_method == 'adms':
             logger.info("Step 5/6: Setting up ADMS parameter efficiency modules...")
             self._setup_adms_modules()
         else:
-            logger.info("Step 5/6: ADMS disabled, skipping...")
+            logger.info(f"Step 5/6: peft_method={self.peft_method}; ADMS masking not used...")
         
         # 6. Initialize experiment infrastructure
         logger.info("Step 6/6: Initializing checkpoint manager and experiment logger...")
@@ -303,10 +326,13 @@ class MainTrainer:
             client_data_tensor = torch.FloatTensor(client_data)
             client_labels_tensor = torch.FloatTensor(client_labels)
             
-            # Create client
+            # Create client with a clone of the global model architecture. deepcopy
+            # preserves the exact configuration (frozen backbone, injected LoRA /
+            # FFA-LoRA adapters) that the main model was built with, unlike
+            # reconstructing from a placeholder arg list.
             client = FederatedClient(
                 client_id=f"client_{client_id}",
-                model=self.model.__class__(*self._get_model_init_args()),  # Create new model instance
+                model=copy.deepcopy(self.model),
                 local_data=(client_data_tensor, client_labels_tensor),
                 batch_size=batch_size,
                 learning_rate=learning_rate,
@@ -326,17 +352,55 @@ class MainTrainer:
         return ()
     
     def _initialize_server(self):
-        """Initialize aggregation server."""
+        """Initialize aggregation server (with aggregate-level DP-FedAvg if selected)."""
         checkpoint_dir = Path(self.experiment_config['output_dir']) / 'server_checkpoints'
-        
+
+        # v2: build the DP-FedAvg mechanism + PRV budget when selected.
+        if self.privacy_mechanism == 'dp_fedavg':
+            from sentryfl.privacy.dp_fedavg import (
+                DPFedAvgMechanism, PRVBudget, solve_noise_multiplier_fedavg,
+            )
+            num_clients = self.federated_config['num_clients']
+            clients_per_round = self.federated_config.get('clients_per_round', num_clients)
+            num_rounds = self.training_config['num_rounds']
+            sample_rate = min(1.0, clients_per_round / max(1, num_clients))
+            clip_norm = self.privacy_config.get('clip_norm', self.privacy_config.get('max_grad_norm', 1.0))
+            accountant = self.privacy_config.get('accountant', 'prv')
+            noise_multiplier = self.privacy_config.get('noise_multiplier')
+            if noise_multiplier is None:
+                noise_multiplier = solve_noise_multiplier_fedavg(
+                    target_epsilon=self.privacy_config['epsilon'],
+                    target_delta=self.privacy_config['delta'],
+                    sample_rate=sample_rate,
+                    num_rounds=num_rounds,
+                    accountant=accountant,
+                )
+            self.dp_fedavg_mechanism = DPFedAvgMechanism(
+                clip_norm=clip_norm,
+                noise_multiplier=noise_multiplier,
+                seed=self.experiment_config.get('seed', 42),
+            )
+            self.privacy_budget = PRVBudget(
+                sample_rate=sample_rate,
+                noise_multiplier=noise_multiplier,
+                accountant=accountant,
+            )
+            logger.info(
+                f"DP-FedAvg enabled: clip_norm={clip_norm}, "
+                f"noise_multiplier={noise_multiplier:.4f}, sample_rate={sample_rate:.4f}, "
+                f"accountant={accountant}, target ε={self.privacy_config['epsilon']}"
+            )
+
         self.aggregation_server = AggregationServer(
             model=self.model,
             checkpoint_dir=str(checkpoint_dir),
             checkpoint_frequency=self.experiment_config['checkpoint_interval'],
             device=self.device,
-            use_byzantine_robust=self.federated_config['byzantine_robust']
+            use_byzantine_robust=self.federated_config['byzantine_robust'],
+            dp_fedavg=self.dp_fedavg_mechanism,
+            privacy_budget=self.privacy_budget,
         )
-        
+
         logger.info("Aggregation server initialized")
     
     def _setup_privacy_modules(self):
@@ -451,15 +515,18 @@ class MainTrainer:
             
             # 3. Client local training
             round_metrics = []
+            round_upload_bytes = 0  # measured serialized upload bytes this round
             for client in selected_clients:
                 logger.info(f"\n--- {client.client_id} local training ---")
                 
                 # Load global model
                 client.receive_global_model(global_params)
                 
-                # Get privacy and ADMS modules if applicable
-                dp_module = self.dp_modules.get(client.client_id) if self.privacy_config['enabled'] else None
-                adms_module = self.adms_modules.get(client.client_id) if self.param_efficiency_config['adms_enabled'] else None
+                # Get privacy and ADMS modules if applicable. In dp_fedavg mode
+                # dp_modules is empty (noise is added server-side), so dp_module=None
+                # and clients train plainly; the server clips+noises the aggregate.
+                dp_module = self.dp_modules.get(client.client_id) if self.privacy_mechanism == 'record_dpsgd' else None
+                adms_module = self.adms_modules.get(client.client_id) if self.peft_method == 'adms' else None
                 
                 # Perform local training
                 try:
@@ -468,7 +535,14 @@ class MainTrainer:
                         dp_module=dp_module,
                         adms_module=adms_module
                     )
-                    
+
+                    # Measure the ACTUAL serialized bytes this client uploads (v2
+                    # honest communication accounting). For FFA-LoRA this is just the
+                    # small adapter matrices; for full-head/ADMS it is the dense set.
+                    client_bytes = measure_update_bytes(local_params)
+                    round_upload_bytes += client_bytes
+                    metrics['upload_bytes'] = client_bytes
+
                     # Collect update from client
                     self.aggregation_server.collect_client_updates(
                         client_id=client.client_id,
@@ -476,9 +550,12 @@ class MainTrainer:
                         num_samples=client.data_size,
                         metrics=metrics
                     )
-                    
+
                     round_metrics.append(metrics)
-                    logger.info(f"{client.client_id} training complete: loss={metrics['final_loss']:.4f}")
+                    logger.info(
+                        f"{client.client_id} training complete: "
+                        f"loss={metrics['final_loss']:.4f}, upload={client_bytes/1024:.1f} KiB"
+                    )
                     
                 except Exception as e:
                     logger.error(f"{client.client_id} training failed: {e}")
@@ -495,17 +572,30 @@ class MainTrainer:
             avg_loss = np.mean([m['final_loss'] for m in round_metrics])
             logger.info(f"Round {round_num} - Average loss: {avg_loss:.4f}")
             
+            # 5b. Communication accounting (measured serialized bytes on the wire).
+            n_participants = max(1, len(round_metrics))
+            comm_stats = {
+                'round_upload_bytes': round_upload_bytes,
+                'avg_client_upload_bytes': round_upload_bytes / n_participants,
+                'peft_method': self.peft_method,
+            }
+            logger.info(
+                f"Round {round_num} communication: {round_upload_bytes/1024:.1f} KiB "
+                f"uploaded across {n_participants} clients ({self.peft_method})"
+            )
+
             # 6. Log training metrics
             self.experiment_logger.log_training_metrics(
                 round_num=round_num,
                 loss=avg_loss,
-                **agg_stats
+                **agg_stats,
+                **comm_stats
             )
             if self.on_round_metrics is not None:
                 self.on_round_metrics(round_num, self.experiment_logger.get_all_metrics())
             
             # 7. Check privacy budget exhaustion
-            if self.privacy_config['enabled']:
+            if self.privacy_mechanism != 'none':
                 privacy_exhausted = self._check_privacy_budget()
                 if privacy_exhausted:
                     logger.warning("Privacy budget exhausted! Terminating training.")
@@ -553,7 +643,21 @@ class MainTrainer:
         return [self.clients[i] for i in indices]
     
     def _check_privacy_budget(self) -> bool:
-        """Check if privacy budget is exhausted for any client."""
+        """Check if privacy budget is exhausted (per-client for record-DP, or the
+        federation-level PRV budget for DP-FedAvg)."""
+        if self.privacy_mechanism == 'dp_fedavg' and self.privacy_budget is not None:
+            if self.dp_fedavg_mechanism is not None and self.dp_fedavg_mechanism.noise_multiplier <= 0:
+                return False  # no privacy target when noiseless
+            exhausted = self.privacy_budget.is_exhausted(
+                self.privacy_config['epsilon'], self.privacy_config['delta']
+            )
+            if exhausted:
+                logger.warning(
+                    f"Federation PRV budget exhausted: "
+                    f"ε={self.privacy_budget.epsilon(self.privacy_config['delta']):.3f} "
+                    f">= target {self.privacy_config['epsilon']}"
+                )
+            return exhausted
         for client_id, dp_module in self.dp_modules.items():
             if dp_module.is_budget_exhausted():
                 logger.warning(f"{client_id} privacy budget exhausted")
@@ -567,10 +671,11 @@ class MainTrainer:
         evaluator = EvaluationPipeline(
             model=self.aggregation_server.get_global_model(),
             device=self.device,
-            threshold=self.evaluation_config.get('anomaly_threshold', 0.5),
-            auto_threshold=True
+            threshold=None,  # v2: use honest thresholding, not a hard-coded 0.5
+            auto_threshold=True,
+            threshold_split=self.evaluation_config.get('threshold_split', 'val'),
         )
-        
+
         metrics = evaluator.evaluate(
             test_data=self.test_data,
             test_labels=self.test_labels,
@@ -618,7 +723,21 @@ class MainTrainer:
         }
         
         # Add privacy state if applicable
-        if self.privacy_config['enabled']:
+        if self.privacy_mechanism == 'dp_fedavg' and self.privacy_budget is not None:
+            # Federation-level cumulative (ε, δ) for DP-FedAvg.
+            try:
+                eps = self.privacy_budget.epsilon(self.privacy_config['delta'])
+            except (OverflowError, ValueError):
+                eps = float('inf')
+            training_state['privacy_metrics'] = {
+                'federation': {
+                    'epsilon': eps,
+                    'delta': self.privacy_config['delta'],
+                    'rounds': self.privacy_budget.rounds,
+                    'mechanism': 'dp_fedavg',
+                }
+            }
+        elif self.privacy_mechanism == 'record_dpsgd':
             privacy_metrics = {}
             for client_id, dp_module in self.dp_modules.items():
                 epsilon, delta = dp_module.get_privacy_spent()
@@ -642,9 +761,10 @@ class MainTrainer:
         evaluator = EvaluationPipeline(
             model=self.aggregation_server.get_global_model(),
             device=self.device,
-            auto_threshold=True
+            auto_threshold=True,
+            threshold_split=self.evaluation_config.get('threshold_split', 'val'),
         )
-        
+
         # Evaluate on test set
         final_metrics = evaluator.evaluate(
             test_data=self.test_data,
@@ -710,13 +830,17 @@ class MainTrainer:
         self.best_val_metric = metadata.get('best_val_metric', 0.0)
         self.early_stop_counter = metadata.get('early_stop_counter', 0)
         
-        # Restore privacy state if applicable
-        if 'privacy_metrics' in metadata and self.privacy_config['enabled']:
+        # Restore privacy state if applicable. For DP-FedAvg the authoritative
+        # cumulative budget is restored by AggregationServer.load_checkpoint (which
+        # rebuilds the PRVBudget); here we just log the recorded values.
+        if 'privacy_metrics' in metadata and self.privacy_mechanism != 'none':
             logger.info("Restoring privacy budget state...")
-            # Note: Actual privacy budget restoration would require more sophisticated handling
-            # For now, we just log the previous state
-            for client_id, privacy_state in metadata['privacy_metrics'].items():
-                logger.info(f"  {client_id}: ε={privacy_state['epsilon']:.4f}")
+            for entity_id, privacy_state in metadata['privacy_metrics'].items():
+                eps = privacy_state.get('epsilon', float('nan'))
+                logger.info(f"  {entity_id}: ε={eps:.4f}")
+            # Re-sync the trainer's budget handle to the server's restored one.
+            if self.privacy_mechanism == 'dp_fedavg':
+                self.privacy_budget = getattr(self.aggregation_server, 'privacy_budget', self.privacy_budget)
         
         logger.info(f"✓ Training resumed from round {self.current_round}")
 

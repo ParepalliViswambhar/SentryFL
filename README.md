@@ -11,7 +11,7 @@ SentryFL is a three-tier differentially private, communication-efficient federat
 ### Core Capabilities
 - **Formal Privacy Guarantees**: DP-SGD with rigorous privacy accounting (ε, δ tracking)
 - **Empirical Privacy Evaluation**: Membership Inference Attack framework to measure actual privacy leakage
-- **Communication Efficiency**: 90%+ reduction via ADMS (Anomaly-Driven Mask Selection) and PPDS modules
+- **Communication Efficiency**: ~97% *measured* upload reduction via FFA-LoRA adapters (v2); ADMS retained as a baseline (see [SentryFL v2](#-sentryfl-v2--efficient-private-adaptation))
 - **Edge Deployment**: INT8 post-training quantization for CPU-only devices
 - **Byzantine Robustness**: Optional trimmed mean aggregation for malicious client detection
 - **Production Ready**: Checkpointing, error recovery, comprehensive logging
@@ -25,6 +25,56 @@ SentryFL is architected as a three-tier system:
 1. **Tier 1**: React Web Dashboard (visualization and experiment control, including live privacy-budget and membership-inference charts)
 2. **Tier 2**: Node.js + Express API Server (REST and WebSocket endpoints, JWT auth, MongoDB persistence for users and audit logs)
 3. **Tier 3**: Python Backend (ML training, federated learning, privacy mechanisms)
+
+## 🔬 SentryFL v2 — Efficient-Private Adaptation
+
+A research upgrade over the original PeFAD extension that fixes verified gaps in the
+privacy, efficiency, and evaluation of the framework. Spec:
+`.kiro/specs/sentryfl-efficient-private/` (PRD + design + tasks).
+
+**One-line thesis:** replace record-level Opacus DP-SGD and ADMS gradient-masking
+with **FFA-LoRA adapters trained under aggregate-level DP-FedAvg + a PRV accountant**,
+validated by honest, measured evaluation.
+
+| Area | v1 (original) | v2 (this upgrade) |
+|------|---------------|-------------------|
+| **Privacy mechanism** | Record-level client DP-SGD (Opacus), no server noise | **Aggregate-level DP-FedAvg**: clip each client update delta + one server-side Gaussian draw per round |
+| **Privacy unit** | Per-sample (record) | **Entity/silo-level** (the meaningful FL unit) |
+| **Accounting** | RDP (+ a sizing/spending mismatch) | **PRV** accountant, pinned for both sizing and spending; single cumulative federation ε |
+| **Parameter efficiency** | ADMS mask (zeroes gradients → **no real wire savings**) | **FFA-LoRA** (freeze A, train B): exact aggregation, DP-noise-unbiased, **97% measured** byte reduction |
+| **Evaluation threshold** | Fit on **test labels** (leakage) | Held-out / leakage-free **unsupervised** default; `threshold_source` provenance |
+| **Metrics** | Point-wise P/R/F1, ROC/PR-AUC | **+ point-adjusted F1, PA%K, affiliation** precision/recall |
+| **Comms accounting** | Fabricated reduction figures | **Measured serialized bytes** (`comm_meter`) |
+
+Legacy modes are retained as selectable baselines (`privacy.mechanism="record_dpsgd"`,
+`parameter_efficiency.method="adms"`); nothing was removed.
+
+**Configure it** (see `config_example.yaml`):
+```yaml
+privacy:
+  mechanism: "dp_fedavg"     # or "record_dpsgd" (legacy baseline) | "none"
+  accountant: "prv"          # tighter than "rdp"
+  epsilon: 8.0
+  clip_norm: 1.0             # server-side delta clip C (also the Byzantine bound)
+parameter_efficiency:
+  method: "ffa_lora"         # or "lora" | "adms" (baseline) | "full_head"
+  lora_rank: 8
+evaluation:
+  threshold_split: "val"     # never fit the threshold on test labels
+```
+
+**Run the reporting experiments** (E2/E3/E4 need no training):
+```bash
+python -m scripts.run_v2_experiments --exp all --out results/v2
+# E4: RDP vs PRV epsilon (PRV ~8-17% tighter)
+# E2: measured upload bytes — FFA-LoRA ~97% smaller than full-head; ADMS ~0% (dense zeroing)
+# E3: DP-noise aggregation error — FFA-LoRA ~1.8x lower than vanilla LoRA
+# E1: privacy-utility Pareto (scaffold; needs a prepared dataset)
+```
+
+> **Honesty note:** SMD/NSL-KDD have no natural "user", so the privacy unit is
+> reported as **entity/silo-level**, and all privacy-utility-communication results
+> are framed as a **frontier**, never "strictly better".
 
 ## 📋 Table of Contents
 
@@ -59,15 +109,82 @@ The complete deployment includes the Python ML backend, Node.js API server, Reac
 
 ```bash
 cp .env.example .env
-# Edit .env and set JWT_SECRET and MONGO_PASSWORD
+# Edit .env and set JWT_SECRET (only secret needed).
 docker compose up --build -d
 ```
+
+MongoDB runs locally **without authentication** (no password) and is published on
+`localhost:27017`, so you can browse the data with **MongoDB Compass** — just connect
+to `mongodb://localhost:27017` and open the `sentryfl` database. To point the API
+server at a MongoDB you run yourself instead of the bundled container, set
+`MONGODB_URI=mongodb://localhost:27017/sentryfl` in `.env`.
 
 Open `https://localhost` for the dashboard. The gateway creates a development self-signed certificate in the `nginx-certs` volume; mount or replace `tls.crt` and `tls.key` there for a trusted certificate. To stop the deployment, run `docker compose down`.
 
 Deployment configuration checks run with `python -m pytest tests/test_deployment.py -q`. Set `RUN_DOCKER_DEPLOYMENT_TESTS=1` to additionally build, start, health-check, and tear down the full Compose stack.
 
 **For detailed installation instructions with exact dependency versions, see [INSTALL.md](INSTALL.md)**
+
+### Running Without Docker (Local Development)
+
+If Docker isn't running (or you'd rather run the three tiers directly), start each
+process by hand. You'll need four terminals; start them in the order below because
+each tier depends on the one before it.
+
+**Prerequisites**
+- **Python** 3.8+ (3.11 recommended) with `pip`
+- **Node.js** ≥ 18 and **npm** ≥ 9
+- **MongoDB** Community Server running locally on port `27017` (the API server needs
+  it for users and audit logs). Install it from
+  [mongodb.com/try/download/community](https://www.mongodb.com/try/download/community)
+  and start `mongod`, or point `MONGODB_URI` at a MongoDB Atlas cluster instead.
+- **Redis is *not* required** for local development — the Python package doesn't use
+  it (the Compose file wires it in for parity only), so you can skip it entirely.
+
+**Terminal 1 — MongoDB** (skip if MongoDB already runs as a system service)
+```bash
+# Passwordless local MongoDB on the default port 27017.
+mongod --dbpath ./data/db          # create ./data/db first if it doesn't exist
+```
+Browse the data any time with **MongoDB Compass** at `mongodb://localhost:27017`.
+
+**Terminal 2 — Python ML backend (Tier 3, port 5000)**
+```bash
+pip install -r requirements.txt    # installs FastAPI + Uvicorn among the deps
+uvicorn sentryfl.api.app:app --host 0.0.0.0 --port 5000 --reload
+```
+Verify it's up: `curl http://localhost:5000/health` → `{"status":"healthy",...}`.
+
+**Terminal 3 — Node.js API server (Tier 2, port 3000)**
+```bash
+cd api-server
+npm install
+cp .env.example .env               # Windows PowerShell: copy .env.example .env
+# Edit .env and set JWT_SECRET to any non-empty value. The defaults already point
+# PYTHON_BACKEND_URL at http://localhost:5000, CORS_ORIGIN at http://localhost:5173,
+# and MONGODB_URI at mongodb://127.0.0.1:27017/sentryfl.
+npm run dev                        # or: npm start
+```
+On first start it seeds a default admin user (`admin` / `admin123`); override with
+`DEFAULT_ADMIN_USERNAME` / `DEFAULT_ADMIN_PASSWORD`, or disable with
+`SEED_DEFAULT_ADMIN=false`.
+
+**Terminal 4 — React dashboard (Tier 1, port 5173)**
+```bash
+cd dashboard
+npm install
+cp .env.example .env               # Windows PowerShell: copy .env.example .env
+# Defaults talk directly to the API server: VITE_API_BASE_URL=http://localhost:3000/api
+# and VITE_WS_URL=ws://localhost:3000 (no Nginx proxy in dev).
+npm run dev
+```
+
+Open **http://localhost:5173** and log in with `admin` / `admin123`. To stop the
+stack, press `Ctrl+C` in each terminal.
+
+> **Note:** These four processes run the dashboard, API, and ML control plane. Actual
+> federated training and evaluation still run through the CLI (`python -m sentryfl.cli
+> train ...`, see below) after you've prepared a dataset.
 
 ### Dataset Setup
 

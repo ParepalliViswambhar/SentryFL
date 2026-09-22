@@ -1264,5 +1264,53 @@ class TestEdgeCasesAndRobustness:
         assert trainer.current_round == 2, "Training should complete with large batch size"
 
 
+class TestDPFedAvgWiring:
+    """End-to-end wiring of v2 aggregate-level DP-FedAvg through MainTrainer."""
+
+    def _dp_fedavg_config(self, base_config):
+        # Mutate a copy of the minimal config to select DP-FedAvg.
+        cfg = base_config.config
+        cfg['privacy'] = {
+            'enabled': True,
+            'mechanism': 'dp_fedavg',
+            'accountant': 'prv',
+            'epsilon': 50.0,          # generous so the short run does not exhaust
+            'delta': 1e-5,
+            'clip_norm': 1.0,
+            'max_grad_norm': 1.0,
+            'noise_multiplier': None,
+        }
+        return base_config
+
+    def test_dp_fedavg_selected_and_budget_advances(self, minimal_config, minimal_model, temp_data_dir):
+        config = self._dp_fedavg_config(minimal_config)
+        trainer = MainTrainer(config=config, model=minimal_model, data_path=temp_data_dir, device='cpu')
+        trainer.setup()
+        patch_experiment_logger(trainer)
+
+        # Server must be configured with a DP-FedAvg mechanism + PRV budget.
+        assert trainer.privacy_mechanism == 'dp_fedavg'
+        assert trainer.aggregation_server.dp_fedavg is not None
+        assert trainer.aggregation_server.privacy_budget is not None
+        # No per-client Opacus modules in DP-FedAvg mode.
+        assert len(trainer.dp_modules) == 0
+
+        trainer.train()
+
+        # The federation budget advanced (one step per completed round) with ε > 0.
+        assert trainer.privacy_budget.rounds >= 1
+        assert trainer.privacy_budget.epsilon(1e-5) > 0.0
+
+    def test_dp_fedavg_reports_single_cumulative_epsilon(self, minimal_config, minimal_model, temp_data_dir):
+        config = self._dp_fedavg_config(minimal_config)
+        trainer = MainTrainer(config=config, model=minimal_model, data_path=temp_data_dir, device='cpu')
+        trainer.setup()
+        patch_experiment_logger(trainer)
+        trainer.train()
+        # A single federation-level epsilon is available (AC-1).
+        eps = trainer.privacy_budget.epsilon(1e-5)
+        assert isinstance(eps, float) and eps > 0.0
+
+
 if __name__ == '__main__':
     pytest.main([__file__, '-v', '-s'])

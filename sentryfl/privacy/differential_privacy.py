@@ -8,8 +8,14 @@ Key Features:
 - Per-sample gradient computation with Opacus
 - Gradient clipping to bounded L2 norm
 - Calibrated Gaussian noise injection
-- Privacy budget tracking via Rényi Differential Privacy (RDP) accountant
+- Privacy budget tracking via a configurable accountant (PRV by default, RDP optional)
 - Support for configurable epsilon (ε) and delta (δ) privacy parameters
+
+Note (SentryFL v2): this module implements RECORD-level (per-sample) DP-SGD and is
+retained as a selectable baseline (``privacy.mechanism = "record_dpsgd"``). The default
+mechanism is aggregate-level DP-FedAvg (see ``sentryfl/privacy/dp_fedavg.py``). The
+accountant used for noise SIZING and for privacy SPENDING is the same family, pinned via
+the ``accountant`` argument, to avoid the RDP-vs-PRV mismatch present in earlier versions.
 """
 
 import torch
@@ -35,14 +41,16 @@ class DifferentialPrivacyModule:
     
     Privacy Guarantees:
     - Implements (ε, δ)-differential privacy
-    - Uses Rényi Differential Privacy (RDP) for tight privacy accounting
-    - Tracks cumulative privacy budget across training rounds
-    
+    - Uses a configurable accountant (PRV by default; RDP optional) for tight,
+      consistent privacy accounting across sizing and spending
+    - Tracks cumulative privacy budget across the local training composition
+
     Args:
         model: PyTorch neural network model
         epsilon: Target privacy budget (smaller = more private, typical: 0.1-10.0)
         delta: Privacy parameter (typically 1e-5 or 1e-6)
         max_grad_norm: Maximum L2 norm for gradient clipping (default: 1.0)
+        accountant: Privacy accountant family, "prv" (default, tighter) or "rdp"
     
     Example:
         >>> model = MyModel()
@@ -59,24 +67,32 @@ class DifferentialPrivacyModule:
         ...         break
     """
     
+    # Accountant families supported by Opacus that this module pins explicitly.
+    SUPPORTED_ACCOUNTANTS = ("prv", "rdp")
+
     def __init__(
         self,
         model: nn.Module,
         epsilon: float,
         delta: float,
-        max_grad_norm: float = 1.0
+        max_grad_norm: float = 1.0,
+        accountant: str = "prv"
     ):
         """
         Initialize the Differential Privacy Module.
-        
+
         Args:
             model: PyTorch model to apply DP to
             epsilon: Privacy budget (ε), smaller values provide stronger privacy
             delta: Failure probability (δ), typically 1e-5 or 1e-6
             max_grad_norm: Maximum L2 norm for gradient clipping
-            
+            accountant: Privacy accountant family, "prv" (default) or "rdp".
+                The SAME family is used for both noise sizing and spending, so the
+                reported ε is internally consistent.
+
         Raises:
-            ValueError: If epsilon <= 0 or delta <= 0 or delta >= 1
+            ValueError: If epsilon <= 0, delta not in (0, 1), max_grad_norm <= 0,
+                or accountant is unsupported.
         """
         if epsilon <= 0:
             raise ValueError(f"epsilon must be > 0, got {epsilon}")
@@ -84,17 +100,22 @@ class DifferentialPrivacyModule:
             raise ValueError(f"delta must be in (0, 1), got {delta}")
         if max_grad_norm <= 0:
             raise ValueError(f"max_grad_norm must be > 0, got {max_grad_norm}")
-        
+        if accountant not in self.SUPPORTED_ACCOUNTANTS:
+            raise ValueError(
+                f"accountant must be one of {self.SUPPORTED_ACCOUNTANTS}, got {accountant!r}"
+            )
+
         self.model = model
         self.target_epsilon = epsilon
         self.target_delta = delta
         self.max_grad_norm = max_grad_norm
+        self.accountant = accountant
         self.privacy_engine: Optional[PrivacyEngine] = None
         self.current_epsilon = 0.0
-        
+
         logger.info(
             f"Initialized DifferentialPrivacyModule with ε={epsilon}, "
-            f"δ={delta}, max_grad_norm={max_grad_norm}"
+            f"δ={delta}, max_grad_norm={max_grad_norm}, accountant={accountant}"
         )
     
     def attach_privacy_engine(
@@ -159,8 +180,10 @@ class DifferentialPrivacyModule:
         noise_multiplier = self._compute_noise_multiplier(data_loader, epochs)
         logger.info(f"Computed noise multiplier: {noise_multiplier:.4f}")
         
-        # Step 3: Initialize and attach privacy engine
-        self.privacy_engine = PrivacyEngine()
+        # Step 3: Initialize and attach privacy engine.
+        # Pin the accountant explicitly so SPENDING (get_epsilon) uses the same
+        # family as SIZING (get_noise_multiplier), removing the RDP/PRV mismatch.
+        self.privacy_engine = PrivacyEngine(accountant=self.accountant)
         
         try:
             self.model, optimizer, data_loader = self.privacy_engine.make_private(
@@ -219,6 +242,7 @@ class DifferentialPrivacyModule:
                 target_delta=self.target_delta,
                 sample_rate=sample_rate,
                 epochs=epochs,
+                accountant=self.accountant,
             )
         except Exception as e:
             logger.error(
@@ -232,7 +256,50 @@ class DifferentialPrivacyModule:
             )
         
         return noise_multiplier
-    
+
+    @staticmethod
+    def compare_accountants(
+        noise_multiplier: float,
+        sample_rate: float,
+        steps: int,
+        delta: float = 1e-5,
+    ) -> Dict[str, float]:
+        """
+        Compute ε under both RDP and PRV accountants for the SAME mechanism.
+
+        This quantifies the tightness gain from PRV over RDP (experiment E4):
+        for identical (noise_multiplier, sample_rate, steps), PRV reports a
+        smaller (tighter) ε, so PRV lets you hit the same target ε with less
+        noise. Returns a dict with both ε and their ratio.
+
+        Args:
+            noise_multiplier: Gaussian noise multiplier σ (std / clip norm)
+            sample_rate: Poisson subsampling rate (batch_size / dataset_size)
+            steps: Number of DP-SGD steps composed
+            delta: Target δ for the (ε, δ) readout
+
+        Returns:
+            {"rdp": ε_rdp, "prv": ε_prv, "ratio_rdp_over_prv": ε_rdp / ε_prv}
+        """
+        from opacus.accountants import RDPAccountant, PRVAccountant
+
+        results: Dict[str, float] = {}
+        for name, cls in (("rdp", RDPAccountant), ("prv", PRVAccountant)):
+            acct = cls()
+            # Compose the identical subsampled-Gaussian mechanism `steps` times.
+            acct.history = [(noise_multiplier, sample_rate, int(steps))]
+            results[name] = float(acct.get_epsilon(delta=delta))
+
+        results["ratio_rdp_over_prv"] = (
+            results["rdp"] / results["prv"] if results["prv"] > 0 else float("inf")
+        )
+        logger.info(
+            f"Accountant comparison (σ={noise_multiplier}, q={sample_rate}, "
+            f"steps={steps}, δ={delta}): RDP ε={results['rdp']:.4f}, "
+            f"PRV ε={results['prv']:.4f} (RDP/PRV={results['ratio_rdp_over_prv']:.3f})"
+        )
+        return results
+
     def get_privacy_spent(self) -> Tuple[float, float]:
         """
         Get current privacy budget consumption.
@@ -317,6 +384,7 @@ class DifferentialPrivacyModule:
             'budget_utilization': budget_utilization,
             'target_epsilon': self.target_epsilon,
             'target_delta': self.target_delta,
+            'accountant': self.accountant,
         }
         
         logger.debug(
@@ -347,5 +415,5 @@ class DifferentialPrivacyModule:
         return (
             f"DifferentialPrivacyModule(epsilon={self.target_epsilon}, "
             f"delta={self.target_delta}, max_grad_norm={self.max_grad_norm}, "
-            f"attached={self.is_attached})"
+            f"accountant={self.accountant}, attached={self.is_attached})"
         )

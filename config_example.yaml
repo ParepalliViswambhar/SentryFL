@@ -41,13 +41,34 @@ federated:
 
 privacy:
   enabled: true
-  epsilon: 1.0  # Must be > 0
+  # v2: mechanism selects the DP scheme.
+  #   "dp_fedavg"   - aggregate-level DP-FedAvg (clip client delta + server Gaussian
+  #                   noise once per round); the recommended default.
+  #   "record_dpsgd"- legacy client-side per-sample Opacus DP-SGD (baseline).
+  #   "none"        - no differential privacy.
+  mechanism: "dp_fedavg"
+  accountant: "prv"  # v2: "prv" (tighter, default) or "rdp" (baseline for comparison)
+  epsilon: 8.0  # Must be > 0
   delta: 1e-5  # Must be in (0, 1)
-  max_grad_norm: 1.0  # Must be > 0
-  noise_multiplier: null  # Auto-computed if null
+  max_grad_norm: 1.0  # record_dpsgd per-sample clip (> 0)
+  clip_norm: 1.0  # v2: dp_fedavg server-side delta clip C (> 0); also the Byzantine bound
+  noise_multiplier: null  # Auto-computed from (eps, delta, rounds, sample_rate) if null
+  adaptive_clipping: false  # v2 roadmap (Phase 4)
 
 parameter_efficiency:
-  adms_enabled: true
+  # v2: method selects the parameter-efficient adaptation.
+  #   "ffa_lora"  - FFA-LoRA (freeze A, train B); recommended, DP-compatible, real
+  #                 measured communication reduction.
+  #   "lora"      - standard LoRA (train A and B).
+  #   "adms"      - legacy Anomaly-Driven Mask Selection (baseline; note: gradient
+  #                 zeroing gives ~0 real wire savings, measured via comm_meter).
+  #   "full_head" - train the full projection + head (no PEFT).
+  method: "ffa_lora"
+  lora_rank: 8
+  lora_alpha: 16
+  lora_targets: ["ts_projection", "head.fc1", "head.fc2"]
+  # Legacy ADMS options (used when method == "adms"):
+  adms_enabled: false
   selection_ratio: 0.05  # 5% of parameters
   ppds_enabled: false
 
@@ -59,7 +80,8 @@ optimization:
   distillation_alpha: 0.5
 
 evaluation:
-  metrics: ["f1", "auc_roc", "auc_pr", "precision", "recall"]
+  metrics: ["f1", "auc_roc", "auc_pr", "precision", "recall", "pa_f1", "affiliation"]
   anomaly_threshold: 0.5
+  threshold_split: "val"  # v2: fit threshold on held-out val (never test); "test_oracle" = opt-in upper bound
   save_predictions: true
   save_plots: true

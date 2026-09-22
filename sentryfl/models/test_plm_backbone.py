@@ -116,7 +116,81 @@ class TestPLMTimeSeriesBackbone:
         # Output should be [batch, hidden_dim]
         assert output.shape == (batch_size, small_backbone.hidden_dim)
         assert output.shape == (batch_size, 768)
-    
+
+    def test_bert_style_disables_custom_positional_encoding(self, small_backbone):
+        """distilbert adds its own positions, so custom PE must be auto-disabled."""
+        # Requirements: FR-4.1 (v2), property P-PE-1 - encode positions exactly once
+        assert small_backbone.use_custom_pe is False
+
+    def test_no_double_positional_encoding_in_forward(self, small_backbone):
+        """When use_custom_pe is False, the tensor fed to the transformer is the
+        bare projection (no extra sinusoidal PE added on top of BERT's own)."""
+        # Requirements: FR-4.1 (v2), property P-PE-1
+        captured = {}
+
+        def pre_hook(module, args, kwargs):
+            captured['inputs_embeds'] = kwargs.get('inputs_embeds')
+
+        handle = small_backbone.transformer.register_forward_pre_hook(
+            pre_hook, with_kwargs=True
+        )
+        try:
+            x = torch.randn(2, 16, small_backbone.input_dim)
+            expected = small_backbone.ts_projection(x)
+            _ = small_backbone(x)
+        finally:
+            handle.remove()
+
+        assert captured['inputs_embeds'] is not None
+        # Bare projection reaches the transformer; custom PE was NOT added.
+        assert torch.allclose(captured['inputs_embeds'], expected, atol=1e-6)
+
+    def test_custom_positional_encoding_can_be_forced(self):
+        """Forcing custom PE on adds the sinusoidal term before the transformer."""
+        # Requirements: FR-4.1 (v2) - explicit override honored
+        backbone = PLMTimeSeriesBackbone(
+            input_dim=8,
+            model_name='distilbert-base-uncased',
+            use_custom_positional_encoding=True,
+        )
+        assert backbone.use_custom_pe is True
+        captured = {}
+
+        def pre_hook(module, args, kwargs):
+            captured['inputs_embeds'] = kwargs.get('inputs_embeds')
+
+        handle = backbone.transformer.register_forward_pre_hook(pre_hook, with_kwargs=True)
+        try:
+            x = torch.randn(2, 16, 8)
+            bare = backbone.ts_projection(x)
+            _ = backbone(x)
+        finally:
+            handle.remove()
+        # With custom PE forced on, the transformer input differs from bare projection.
+        assert not torch.allclose(captured['inputs_embeds'], bare, atol=1e-6)
+
+    def test_ffa_lora_detector_only_adapters_trainable(self):
+        """FFA-LoRA PLMAnomalyDetector: frozen backbone, only lora_B trainable."""
+        # Requirements: v2 FR-2.1, FR-2.2 - adapter-only trainable parameter set
+        model = PLMAnomalyDetector(
+            input_dim=8,
+            model_name='distilbert-base-uncased',
+            freeze_backbone=True,
+            peft_method='ffa_lora',
+            lora_rank=4,
+        )
+        assert len(model.lora_module_names) >= 1
+        trainable = [n for n, p in model.named_parameters() if p.requires_grad]
+        assert trainable, "should have trainable adapter params"
+        # Every trainable param is a LoRA B matrix (A frozen, backbone frozen).
+        assert all('.lora_B' in n for n in trainable), trainable
+        # Forward still produces per-sample scores.
+        out = model(torch.randn(2, 12, 8))
+        assert out.shape == (2, 1)
+        # Trainable params are a tiny fraction of the total (real efficiency).
+        total = model.get_total_parameters()
+        assert model.get_trainable_parameters() < 0.01 * total
+
     def test_backbone_parameter_freezing(self):
         """Test that backbone parameters are frozen when requested"""
         backbone_frozen = PLMTimeSeriesBackbone(

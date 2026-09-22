@@ -59,17 +59,18 @@ class PLMTimeSeriesBackbone(nn.Module):
     """Transformer-based backbone for time-series encoding"""
     
     def __init__(
-        self, 
+        self,
         input_dim: int,
         model_name: str = 'bert-base-uncased',
         hidden_dim: Optional[int] = None,
         freeze_backbone: bool = True,
         max_seq_len: int = 512,
-        dropout: float = 0.1
+        dropout: float = 0.1,
+        use_custom_positional_encoding: Optional[bool] = None
     ):
         """
         Initialize PLM backbone for time-series
-        
+
         Args:
             input_dim: Dimension of input time-series features
             model_name: Pre-trained model name from Hugging Face
@@ -77,36 +78,63 @@ class PLMTimeSeriesBackbone(nn.Module):
             freeze_backbone: Whether to freeze transformer parameters
             max_seq_len: Maximum sequence length for positional encoding
             dropout: Dropout probability
+            use_custom_positional_encoding: Whether to add the custom sinusoidal
+                positional encoding. When None (default), it is auto-detected:
+                transformers that add their OWN position embeddings to
+                ``inputs_embeds`` (e.g. BERT) get ``False`` to avoid encoding
+                positions twice; models without internal position embeddings get
+                ``True``. See the double-encoding fix note in ``forward``.
         """
         super().__init__()
         self.model_name = model_name
         self.input_dim = input_dim
         self.freeze_backbone = freeze_backbone
-        
+
         # Load pre-trained transformer model
         self.config = AutoConfig.from_pretrained(model_name)
         self.transformer = AutoModel.from_pretrained(model_name)
-        
+
         # Set hidden dimension from transformer config if not specified
         if hidden_dim is None:
             hidden_dim = self.config.hidden_size
         self.hidden_dim = hidden_dim
-        
+
         # Freeze transformer parameters if specified
         if freeze_backbone:
             for param in self.transformer.parameters():
                 param.requires_grad = False
-        
+
         # Time-series projection layer (maps input features to transformer hidden dim)
         self.ts_projection = nn.Linear(input_dim, hidden_dim)
-        
-        # Positional encoding for temporal order
+
+        # Decide whether to add our own positional encoding. If the transformer
+        # already injects position embeddings for inputs_embeds (BERT/RoBERTa/etc.),
+        # adding the custom sinusoidal PE would encode positions TWICE, degrading
+        # representations. Auto-detect and disable the custom PE in that case.
+        if use_custom_positional_encoding is None:
+            use_custom_positional_encoding = not self._transformer_adds_positions()
+        self.use_custom_pe = use_custom_positional_encoding
+
+        # Positional encoding for temporal order (applied only when the transformer
+        # does not add its own; still constructed so state_dict/config stays stable).
         self.positional_encoding = PositionalEncoding(
             d_model=hidden_dim,
             max_len=max_seq_len,
             dropout=dropout
         )
-        
+
+    def _transformer_adds_positions(self) -> bool:
+        """
+        Detect whether the loaded transformer adds its own position embeddings
+        to ``inputs_embeds`` (true for BERT-style encoders).
+        """
+        embeddings = getattr(self.transformer, 'embeddings', None)
+        if embeddings is not None and hasattr(embeddings, 'position_embeddings'):
+            return True
+        # Fallback heuristic on model name for architectures that embed positions.
+        name = self.model_name.lower()
+        return any(tag in name for tag in ('bert', 'electra', 'albert'))
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
         Forward pass through PLM backbone
@@ -120,11 +148,15 @@ class PLMTimeSeriesBackbone(nn.Module):
         # Project time-series features to hidden dimension
         # x: [batch, seq_len, input_dim] -> [batch, seq_len, hidden_dim]
         x = self.ts_projection(x)
-        
-        # Add positional encoding
+
+        # Add our own positional encoding ONLY when the transformer does not add
+        # its own. For BERT-style encoders, self.use_custom_pe is False and the
+        # transformer's internal position embeddings provide positional info,
+        # avoiding double-encoding.
         # x: [batch, seq_len, hidden_dim]
-        x = self.positional_encoding(x)
-        
+        if self.use_custom_pe:
+            x = self.positional_encoding(x)
+
         # Pass through transformer
         # For BERT-style models, use inputs_embeds parameter
         outputs = self.transformer(inputs_embeds=x)
@@ -195,11 +227,16 @@ class PLMAnomalyDetector(nn.Module):
         hidden_dim: Optional[int] = None,
         freeze_backbone: bool = True,
         max_seq_len: int = 512,
-        dropout: float = 0.1
+        dropout: float = 0.1,
+        use_custom_positional_encoding: Optional[bool] = None,
+        peft_method: str = 'full_head',
+        lora_rank: int = 8,
+        lora_alpha: float = 16.0,
+        lora_targets: Optional[list] = None
     ):
         """
         Initialize complete anomaly detection model
-        
+
         Args:
             input_dim: Dimension of input time-series features
             model_name: Pre-trained model name from Hugging Face
@@ -207,9 +244,23 @@ class PLMAnomalyDetector(nn.Module):
             freeze_backbone: Whether to freeze transformer parameters
             max_seq_len: Maximum sequence length
             dropout: Dropout probability
+            use_custom_positional_encoding: See PLMTimeSeriesBackbone; None
+                auto-detects to avoid double positional encoding on BERT-style models.
+            peft_method: Parameter-efficiency method (v2):
+                - "full_head" (default): train the full projection + head (legacy).
+                - "lora": inject LoRA adapters (train A and B) into lora_targets.
+                - "ffa_lora": inject FFA-LoRA adapters (freeze A, train only B) -
+                  the recommended DP-compatible mode.
+                - "adms": no adapters here; ADMS masking is applied externally
+                  (kept as a labeled baseline).
+            lora_rank: LoRA rank r.
+            lora_alpha: LoRA scaling alpha.
+            lora_targets: module-name suffixes to adapt. Defaults to the projection
+                and head linears when None.
         """
         super().__init__()
-        
+        self.peft_method = peft_method
+
         # Initialize backbone
         self.backbone = PLMTimeSeriesBackbone(
             input_dim=input_dim,
@@ -217,15 +268,30 @@ class PLMAnomalyDetector(nn.Module):
             hidden_dim=hidden_dim,
             freeze_backbone=freeze_backbone,
             max_seq_len=max_seq_len,
-            dropout=dropout
+            dropout=dropout,
+            use_custom_positional_encoding=use_custom_positional_encoding
         )
-        
+
         # Initialize detection head
         self.head = AnomalyDetectionHead(
             hidden_dim=self.backbone.hidden_dim,
             dropout=dropout
         )
-    
+
+        # Inject LoRA / FFA-LoRA adapters if requested (v2 parameter-efficiency).
+        self.lora_module_names: list = []
+        if peft_method in ('lora', 'ffa_lora'):
+            from .lora import inject_lora
+            if lora_targets is None:
+                lora_targets = ['ts_projection', 'head.fc1', 'head.fc2']
+            self.lora_module_names = inject_lora(
+                self,
+                targets=lora_targets,
+                r=lora_rank,
+                alpha=lora_alpha,
+                freeze_A=(peft_method == 'ffa_lora'),
+            )
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
         Forward pass through complete model

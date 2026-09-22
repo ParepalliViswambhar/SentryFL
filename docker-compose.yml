@@ -31,7 +31,9 @@ services:
       JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env for deployment}
       API_SERVER_URL: http://api-server:3000
       CACHE_TTL_SECONDS: ${CACHE_TTL_SECONDS:-300}
-      MONGODB_URI: mongodb://${MONGO_USER:-sentryfl}:${MONGO_PASSWORD:-sentryfl}@mongo:27017/${MONGO_DB:-sentryfl}?authSource=admin
+      # Passwordless local MongoDB (no auth) — connect with MongoDB Compass at
+      # mongodb://localhost:27017. Override MONGODB_URI to point at another server.
+      MONGODB_URI: ${MONGODB_URI:-mongodb://mongo:27017/${MONGO_DB:-sentryfl}}
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://localhost:3000/health').then(r => { if (!r.ok) process.exit(1); }).catch(() => process.exit(1))"]
       interval: 30s
@@ -68,9 +70,9 @@ services:
   mongo:
     build:
       context: ./docker/mongo
+    # No MONGO_INITDB_ROOT_USERNAME/PASSWORD -> mongod runs WITHOUT authentication,
+    # so no database password is needed. Only the default DB name is set.
     environment:
-      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USER:-sentryfl}
-      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD:-sentryfl}
       MONGO_INITDB_DATABASE: ${MONGO_DB:-sentryfl}
     healthcheck:
       test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
@@ -80,8 +82,10 @@ services:
       start_period: 20s
     volumes:
       - mongo-data:/data/db
-    expose:
-      - '27017'
+    # Published to the host so MongoDB Compass can connect at
+    # mongodb://localhost:27017 to browse the data.
+    ports:
+      - '${MONGO_PORT:-27017}:27017'
     networks: [sentryfl]
 
   redis:

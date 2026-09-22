@@ -212,7 +212,9 @@ class TestAblationStudyRunner(unittest.TestCase):
         self.assertEqual(results.config_name, 'full_system')
         self.assertAlmostEqual(results.f1_score, 0.85)
         self.assertAlmostEqual(results.auc_roc, 0.90)
-        self.assertGreater(results.training_time_seconds, 0)
+        # An instantaneous mock train_fn can measure exactly 0.0s on clocks with
+        # coarse resolution (e.g. Windows time.time()), so >= 0 is the correct bound.
+        self.assertGreaterEqual(results.training_time_seconds, 0)
         
         # Verify results file is saved
         results_path = Path(self.temp_dir) / 'full_system_results.json'
