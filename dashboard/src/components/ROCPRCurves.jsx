@@ -32,12 +32,14 @@ import {
   TableRow,
   Tooltip,
   Typography,
+  useTheme,
 } from '@mui/material';
 import InfoIcon from '@mui/icons-material/Info';
 import AssessmentIcon from '@mui/icons-material/Assessment';
 import DownloadIcon from '@mui/icons-material/Download';
 import { Line } from 'react-chartjs-2';
 import { exportChartAsPNG, exportChartAsSVG, PUBLICATION_DPI } from '../utils/exportUtils';
+import { buildBaseChartOptions, mergeChartOptions, seriesColor, withAlpha } from '../utils/chartTheme';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -70,6 +72,7 @@ const ROCPRCurves = ({
   prAuc = null,
   confusionMatrix = null,
 }) => {
+  const theme = useTheme();
   const rocChartRef = useRef(null);
   const prChartRef = useRef(null);
 
@@ -77,7 +80,7 @@ const ROCPRCurves = ({
   const rocData = useMemo(() => {
     const fprValues = rocCurve.map((point) => point.fpr);
     const tprValues = rocCurve.map((point) => point.tpr);
-    
+
     // Diagonal reference line (random classifier)
     const diagonalLine = rocCurve.map((point) => point.fpr);
 
@@ -87,8 +90,8 @@ const ROCPRCurves = ({
         {
           label: `ROC Curve (AUC = ${rocAuc !== null ? rocAuc.toFixed(3) : 'N/A'})`,
           data: tprValues.map((tpr, idx) => ({ x: fprValues[idx], y: tpr })),
-          borderColor: '#1976d2',
-          backgroundColor: 'rgba(25, 118, 210, 0.1)',
+          borderColor: seriesColor(theme, 0),
+          backgroundColor: withAlpha(seriesColor(theme, 0), 0.12),
           fill: true,
           tension: 0.3,
           pointRadius: 0,
@@ -97,7 +100,7 @@ const ROCPRCurves = ({
         {
           label: 'Random Classifier',
           data: diagonalLine.map((fpr, idx) => ({ x: fpr, y: diagonalLine[idx] })),
-          borderColor: '#757575',
+          borderColor: theme.palette.text.disabled,
           backgroundColor: 'transparent',
           borderDash: [5, 5],
           borderWidth: 2,
@@ -106,7 +109,7 @@ const ROCPRCurves = ({
         },
       ],
     };
-  }, [rocCurve, rocAuc]);
+  }, [rocCurve, rocAuc, theme]);
 
   // Prepare PR curve data
   const prData = useMemo(() => {
@@ -119,8 +122,8 @@ const ROCPRCurves = ({
         {
           label: `PR Curve (AUC-PR = ${prAuc !== null ? prAuc.toFixed(3) : 'N/A'})`,
           data: precisionValues.map((precision, idx) => ({ x: recallValues[idx], y: precision })),
-          borderColor: '#2e7d32',
-          backgroundColor: 'rgba(46, 125, 50, 0.1)',
+          borderColor: seriesColor(theme, 2),
+          backgroundColor: withAlpha(seriesColor(theme, 2), 0.12),
           fill: true,
           tension: 0.3,
           pointRadius: 0,
@@ -128,97 +131,59 @@ const ROCPRCurves = ({
         },
       ],
     };
-  }, [prCurve, prAuc]);
+  }, [prCurve, prAuc, theme]);
 
   // ROC curve chart options
-  const rocOptions = {
-    responsive: true,
-    maintainAspectRatio: false,
-    plugins: {
-      legend: {
-        position: 'bottom',
-        labels: {
-          usePointStyle: true,
-          padding: 15,
-        },
+  const rocOptions = useMemo(() => mergeChartOptions(
+    buildBaseChartOptions(theme, {
+      xTitle: 'False Positive Rate (FPR)',
+      yTitle: 'True Positive Rate (TPR)',
+    }),
+    {
+      scales: {
+        x: { type: 'linear', min: 0, max: 1 },
+        y: { min: 0, max: 1 },
       },
-      tooltip: {
-        enabled: true,
-        callbacks: {
-          title: () => 'ROC Curve',
-          label: (context) => {
-            const x = context.parsed.x.toFixed(3);
-            const y = context.parsed.y.toFixed(3);
-            return `FPR: ${x}, TPR: ${y}`;
+      plugins: {
+        tooltip: {
+          callbacks: {
+            title: () => 'ROC Curve',
+            label: (context) => {
+              const x = context.parsed.x.toFixed(3);
+              const y = context.parsed.y.toFixed(3);
+              return `FPR: ${x}, TPR: ${y}`;
+            },
           },
         },
       },
-    },
-    scales: {
-      x: {
-        type: 'linear',
-        title: {
-          display: true,
-          text: 'False Positive Rate (FPR)',
-        },
-        min: 0,
-        max: 1,
-      },
-      y: {
-        title: {
-          display: true,
-          text: 'True Positive Rate (TPR)',
-        },
-        min: 0,
-        max: 1,
-      },
-    },
-  };
+    }
+  ), [theme]);
 
   // PR curve chart options
-  const prOptions = {
-    responsive: true,
-    maintainAspectRatio: false,
-    plugins: {
-      legend: {
-        position: 'bottom',
-        labels: {
-          usePointStyle: true,
-          padding: 15,
-        },
+  const prOptions = useMemo(() => mergeChartOptions(
+    buildBaseChartOptions(theme, {
+      xTitle: 'Recall',
+      yTitle: 'Precision',
+    }),
+    {
+      scales: {
+        x: { type: 'linear', min: 0, max: 1 },
+        y: { min: 0, max: 1 },
       },
-      tooltip: {
-        enabled: true,
-        callbacks: {
-          title: () => 'Precision-Recall Curve',
-          label: (context) => {
-            const x = context.parsed.x.toFixed(3);
-            const y = context.parsed.y.toFixed(3);
-            return `Recall: ${x}, Precision: ${y}`;
+      plugins: {
+        tooltip: {
+          callbacks: {
+            title: () => 'Precision-Recall Curve',
+            label: (context) => {
+              const x = context.parsed.x.toFixed(3);
+              const y = context.parsed.y.toFixed(3);
+              return `Recall: ${x}, Precision: ${y}`;
+            },
           },
         },
       },
-    },
-    scales: {
-      x: {
-        type: 'linear',
-        title: {
-          display: true,
-          text: 'Recall',
-        },
-        min: 0,
-        max: 1,
-      },
-      y: {
-        title: {
-          display: true,
-          text: 'Precision',
-        },
-        min: 0,
-        max: 1,
-      },
-    },
-  };
+    }
+  ), [theme]);
 
   // Calculate confusion matrix metrics
   const confusionMetrics = useMemo(() => {
@@ -369,7 +334,7 @@ const ROCPRCurves = ({
                   <Typography color="text.secondary" variant="body2">
                     ROC AUC Score
                   </Typography>
-                  <Typography variant="h4" sx={{ fontWeight: 600, color: '#1976d2' }}>
+                  <Typography variant="h4" sx={{ fontWeight: 600, color: 'primary.main' }}>
                     {rocAuc !== null ? rocAuc.toFixed(4) : 'N/A'}
                   </Typography>
                   <Typography variant="caption" color="text.secondary">
@@ -392,7 +357,7 @@ const ROCPRCurves = ({
                   <Typography color="text.secondary" variant="body2">
                     PR AUC Score
                   </Typography>
-                  <Typography variant="h4" sx={{ fontWeight: 600, color: '#2e7d32' }}>
+                  <Typography variant="h4" sx={{ fontWeight: 600, color: 'success.main' }}>
                     {prAuc !== null ? prAuc.toFixed(4) : 'N/A'}
                   </Typography>
                   <Typography variant="caption" color="text.secondary">

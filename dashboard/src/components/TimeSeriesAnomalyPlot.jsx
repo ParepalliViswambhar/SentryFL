@@ -26,6 +26,7 @@ import {
   Switch,
   Tooltip,
   Typography,
+  useTheme,
 } from '@mui/material';
 import DownloadIcon from '@mui/icons-material/Download';
 import RestartAltIcon from '@mui/icons-material/RestartAlt';
@@ -44,6 +45,7 @@ import {
 } from 'chart.js';
 import zoomPlugin from 'chartjs-plugin-zoom';
 import { downsampleTimeSeries } from '../utils/dataUtils';
+import { buildBaseChartOptions, mergeChartOptions, seriesColor, withAlpha } from '../utils/chartTheme';
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, ChartTooltip, Legend, Filler, zoomPlugin);
 
@@ -103,6 +105,7 @@ const TimeSeriesAnomalyPlot = ({
   timeSeriesLabel = 'Time-Series Value',
 }) => {
   const chartRef = useRef(null);
+  const theme = useTheme();
   const [showGroundTruth, setShowGroundTruth] = useState(true);
   const [showPredicted, setShowPredicted] = useState(true);
 
@@ -145,8 +148,8 @@ const TimeSeriesAnomalyPlot = ({
       {
         label: 'Normal',
         data: normalValues,
-        borderColor: '#1976d2',
-        backgroundColor: 'rgba(25, 118, 210, 0.1)',
+        borderColor: seriesColor(theme, 0),
+        backgroundColor: withAlpha(seriesColor(theme, 0), 0.12),
         fill: false,
         tension: 0.2,
         pointRadius: 2,
@@ -159,8 +162,8 @@ const TimeSeriesAnomalyPlot = ({
       datasets.push({
         label: 'Predicted Anomaly',
         data: predictedAnomalyValues,
-        borderColor: '#d32f2f',
-        backgroundColor: '#d32f2f',
+        borderColor: theme.palette.error.main,
+        backgroundColor: theme.palette.error.main,
         fill: false,
         pointRadius: 5,
         pointHoverRadius: 7,
@@ -173,8 +176,8 @@ const TimeSeriesAnomalyPlot = ({
       datasets.push({
         label: 'Ground Truth Anomaly',
         data: groundTruthAnomalyValues,
-        borderColor: '#ed6c02',
-        backgroundColor: '#ed6c02',
+        borderColor: theme.palette.warning.main,
+        backgroundColor: theme.palette.warning.main,
         fill: false,
         pointRadius: 5,
         pointHoverRadius: 7,
@@ -187,64 +190,42 @@ const TimeSeriesAnomalyPlot = ({
       labels: downsampledTimestamps,
       datasets,
     };
-  }, [timeSeriesData, predictedAnomalies, groundTruthAnomalies, showGroundTruth, showPredicted]);
+  }, [timeSeriesData, predictedAnomalies, groundTruthAnomalies, showGroundTruth, showPredicted, theme]);
 
-  // Chart options with zoom
-  const chartOptions = {
-    responsive: true,
-    maintainAspectRatio: false,
-    animation: { duration: 300 },
-    interaction: { mode: 'index', intersect: false },
-    plugins: {
-      legend: {
-        position: 'bottom',
-        labels: {
-          usePointStyle: true,
-          padding: 15,
-        },
-      },
-      tooltip: {
-        enabled: true,
-        callbacks: {
-          title: (context) => `Time: ${context[0].label}`,
-          label: (context) => {
-            const label = context.dataset.label || '';
-            const value = context.parsed.y !== null ? context.parsed.y.toFixed(4) : 'N/A';
-            return `${label}: ${value}`;
+  // Chart options with zoom (chrome themed via buildBaseChartOptions)
+  const chartOptions = useMemo(() => mergeChartOptions(
+    buildBaseChartOptions(theme, { xTitle: 'Timestamp', yTitle: timeSeriesLabel }),
+    {
+      animation: { duration: 300 },
+      plugins: {
+        tooltip: {
+          callbacks: {
+            title: (context) => `Time: ${context[0].label}`,
+            label: (context) => {
+              const label = context.dataset.label || '';
+              const value = context.parsed.y !== null ? context.parsed.y.toFixed(4) : 'N/A';
+              return `${label}: ${value}`;
+            },
           },
-        },
-      },
-      zoom: {
-        pan: {
-          enabled: true,
-          mode: 'x',
         },
         zoom: {
-          wheel: {
+          pan: {
             enabled: true,
+            mode: 'x',
           },
-          pinch: {
-            enabled: true,
+          zoom: {
+            wheel: {
+              enabled: true,
+            },
+            pinch: {
+              enabled: true,
+            },
+            mode: 'x',
           },
-          mode: 'x',
         },
       },
-    },
-    scales: {
-      x: {
-        title: {
-          display: true,
-          text: 'Timestamp',
-        },
-      },
-      y: {
-        title: {
-          display: true,
-          text: timeSeriesLabel,
-        },
-      },
-    },
-  };
+    }
+  ), [theme, timeSeriesLabel]);
 
   // Calculate statistics
   const statistics = useMemo(() => {

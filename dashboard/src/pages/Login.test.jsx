@@ -7,7 +7,10 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { BrowserRouter } from 'react-router-dom';
+import { Provider } from 'react-redux';
+import { configureStore } from '@reduxjs/toolkit';
 import Login from './Login';
+import authReducer from '../store/slices/authSlice';
 import apiClient from '../api/client';
 
 // Mock API client
@@ -30,10 +33,13 @@ describe('Login Component', () => {
   });
 
   const renderLogin = () => {
+    const store = configureStore({ reducer: { auth: authReducer } });
     return render(
-      <BrowserRouter>
-        <Login />
-      </BrowserRouter>
+      <Provider store={store}>
+        <BrowserRouter>
+          <Login />
+        </BrowserRouter>
+      </Provider>
     );
   };
 
@@ -41,8 +47,8 @@ describe('Login Component', () => {
     it('should render login form with username and password inputs', () => {
       renderLogin();
       
-      expect(screen.getByLabelText(/username/i)).toBeInTheDocument();
-      expect(screen.getByLabelText(/password/i)).toBeInTheDocument();
+      expect(screen.getByLabelText(/^username/i)).toBeInTheDocument();
+      expect(screen.getByLabelText(/^password/i)).toBeInTheDocument();
       expect(screen.getByRole('button', { name: /sign in/i })).toBeInTheDocument();
     });
 
@@ -59,7 +65,7 @@ describe('Login Component', () => {
       renderLogin();
       
       const submitButton = screen.getByRole('button', { name: /sign in/i });
-      fireEvent.click(submitButton);
+      fireEvent.submit(submitButton.closest('form'));
       
       await waitFor(() => {
         expect(screen.getByText(/username is required/i)).toBeInTheDocument();
@@ -72,11 +78,11 @@ describe('Login Component', () => {
     it('should show error when username is too short', async () => {
       renderLogin();
       
-      const usernameInput = screen.getByLabelText(/username/i);
+      const usernameInput = screen.getByLabelText(/^username/i);
       fireEvent.change(usernameInput, { target: { value: 'ab' } });
       
       const submitButton = screen.getByRole('button', { name: /sign in/i });
-      fireEvent.click(submitButton);
+      fireEvent.submit(submitButton.closest('form'));
       
       await waitFor(() => {
         expect(screen.getByText(/username must be at least 3 characters/i)).toBeInTheDocument();
@@ -86,11 +92,11 @@ describe('Login Component', () => {
     it('should show error when password is empty', async () => {
       renderLogin();
       
-      const usernameInput = screen.getByLabelText(/username/i);
+      const usernameInput = screen.getByLabelText(/^username/i);
       fireEvent.change(usernameInput, { target: { value: 'testuser' } });
       
       const submitButton = screen.getByRole('button', { name: /sign in/i });
-      fireEvent.click(submitButton);
+      fireEvent.submit(submitButton.closest('form'));
       
       await waitFor(() => {
         expect(screen.getByText(/password is required/i)).toBeInTheDocument();
@@ -100,14 +106,14 @@ describe('Login Component', () => {
     it('should show error when password is too short', async () => {
       renderLogin();
       
-      const usernameInput = screen.getByLabelText(/username/i);
-      const passwordInput = screen.getByLabelText(/password/i);
+      const usernameInput = screen.getByLabelText(/^username/i);
+      const passwordInput = screen.getByLabelText(/^password/i);
       
       fireEvent.change(usernameInput, { target: { value: 'testuser' } });
       fireEvent.change(passwordInput, { target: { value: '12345' } });
       
       const submitButton = screen.getByRole('button', { name: /sign in/i });
-      fireEvent.click(submitButton);
+      fireEvent.submit(submitButton.closest('form'));
       
       await waitFor(() => {
         expect(screen.getByText(/password must be at least 6 characters/i)).toBeInTheDocument();
@@ -117,11 +123,11 @@ describe('Login Component', () => {
     it('should clear field error when user types in field', async () => {
       renderLogin();
       
-      const usernameInput = screen.getByLabelText(/username/i);
+      const usernameInput = screen.getByLabelText(/^username/i);
       const submitButton = screen.getByRole('button', { name: /sign in/i });
       
       // Trigger validation error
-      fireEvent.click(submitButton);
+      fireEvent.submit(submitButton.closest('form'));
       
       await waitFor(() => {
         expect(screen.getByText(/username is required/i)).toBeInTheDocument();
@@ -156,13 +162,13 @@ describe('Login Component', () => {
 
       renderLogin();
       
-      const usernameInput = screen.getByLabelText(/username/i);
-      const passwordInput = screen.getByLabelText(/password/i);
+      const usernameInput = screen.getByLabelText(/^username/i);
+      const passwordInput = screen.getByLabelText(/^password/i);
       const submitButton = screen.getByRole('button', { name: /sign in/i });
       
       fireEvent.change(usernameInput, { target: { value: 'testuser' } });
       fireEvent.change(passwordInput, { target: { value: 'password123' } });
-      fireEvent.click(submitButton);
+      fireEvent.submit(submitButton.closest('form'));
       
       await waitFor(() => {
         expect(apiClient.post).toHaveBeenCalledWith('/auth/login', {
@@ -183,13 +189,13 @@ describe('Login Component', () => {
 
       renderLogin();
       
-      const usernameInput = screen.getByLabelText(/username/i);
-      const passwordInput = screen.getByLabelText(/password/i);
+      const usernameInput = screen.getByLabelText(/^username/i);
+      const passwordInput = screen.getByLabelText(/^password/i);
       const submitButton = screen.getByRole('button', { name: /sign in/i });
       
       fireEvent.change(usernameInput, { target: { value: 'testuser' } });
       fireEvent.change(passwordInput, { target: { value: 'password123' } });
-      fireEvent.click(submitButton);
+      fireEvent.submit(submitButton.closest('form'));
       
       // Should show loading text
       await waitFor(() => {
@@ -216,13 +222,13 @@ describe('Login Component', () => {
 
       renderLogin();
       
-      const usernameInput = screen.getByLabelText(/username/i);
-      const passwordInput = screen.getByLabelText(/password/i);
+      const usernameInput = screen.getByLabelText(/^username/i);
+      const passwordInput = screen.getByLabelText(/^password/i);
       const submitButton = screen.getByRole('button', { name: /sign in/i });
       
       fireEvent.change(usernameInput, { target: { value: 'testuser' } });
       fireEvent.change(passwordInput, { target: { value: 'wrongpassword' } });
-      fireEvent.click(submitButton);
+      fireEvent.submit(submitButton.closest('form'));
       
       await waitFor(() => {
         expect(screen.getByText(errorMessage)).toBeInTheDocument();
@@ -244,13 +250,13 @@ describe('Login Component', () => {
 
       renderLogin();
       
-      const usernameInput = screen.getByLabelText(/username/i);
-      const passwordInput = screen.getByLabelText(/password/i);
+      const usernameInput = screen.getByLabelText(/^username/i);
+      const passwordInput = screen.getByLabelText(/^password/i);
       const submitButton = screen.getByRole('button', { name: /sign in/i });
       
       fireEvent.change(usernameInput, { target: { value: 'testuser' } });
       fireEvent.change(passwordInput, { target: { value: 'password123' } });
-      fireEvent.click(submitButton);
+      fireEvent.submit(submitButton.closest('form'));
       
       await waitFor(() => {
         expect(screen.getByText(/login failed\. please try again\./i)).toBeInTheDocument();
@@ -268,13 +274,13 @@ describe('Login Component', () => {
 
       renderLogin();
       
-      const usernameInput = screen.getByLabelText(/username/i);
-      const passwordInput = screen.getByLabelText(/password/i);
+      const usernameInput = screen.getByLabelText(/^username/i);
+      const passwordInput = screen.getByLabelText(/^password/i);
       const submitButton = screen.getByRole('button', { name: /sign in/i });
       
       fireEvent.change(usernameInput, { target: { value: 'testuser' } });
       fireEvent.change(passwordInput, { target: { value: 'wrongpassword' } });
-      fireEvent.click(submitButton);
+      fireEvent.submit(submitButton.closest('form'));
       
       await waitFor(() => {
         expect(screen.getByText(/invalid credentials/i)).toBeInTheDocument();

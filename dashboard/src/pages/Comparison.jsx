@@ -34,11 +34,10 @@ import {
   Chip,
   Button,
   Tooltip,
+  useTheme,
 } from '@mui/material';
-import {
-  Download as DownloadIcon,
-  Archive as ArchiveIcon,
-} from '@mui/icons-material';
+import DownloadIcon from '@mui/icons-material/Download';
+import ArchiveIcon from '@mui/icons-material/Archive';
 import { Line, Bar } from 'react-chartjs-2';
 import JSZip from 'jszip';
 import {
@@ -54,6 +53,7 @@ import {
 } from 'chart.js';
 import { fetchExperiments, selectAllExperiments, selectExperimentsStatus, selectExperimentsError } from '../store/slices/experimentsSlice';
 import LoadingSpinner from '../components/LoadingSpinner';
+import { buildBaseChartOptions, mergeChartOptions, seriesColor, withAlpha } from '../utils/chartTheme';
 
 ChartJS.register(
   CategoryScale,
@@ -66,24 +66,13 @@ ChartJS.register(
   Legend
 );
 
-// Color palette for experiments
-const COLORS = [
-  '#0b7285',
-  '#e67700',
-  '#5f3dc4',
-  '#2b8a3e',
-  '#c2255c',
-  '#495057',
-  '#087f5b',
-  '#d9480f',
-];
-
 const Comparison = () => {
   const dispatch = useDispatch();
   const experiments = useSelector(selectAllExperiments);
   const status = useSelector(selectExperimentsStatus);
   const error = useSelector(selectExperimentsError);
-  
+  const theme = useTheme();
+
   const [selectedIds, setSelectedIds] = useState([]);
 
   useEffect(() => {
@@ -345,14 +334,14 @@ Legend: *** = 99% confidence, ** = 95% confidence, * = 90% confidence
     const datasets = selectedExperiments.map((exp, index) => ({
       label: exp.name,
       data: exp.trainingHistory?.map(h => h.loss) || [],
-      borderColor: COLORS[index % COLORS.length],
-      backgroundColor: COLORS[index % COLORS.length] + '20',
+      borderColor: seriesColor(theme, index),
+      backgroundColor: withAlpha(seriesColor(theme, index), 0.12),
       tension: 0.3,
       spanGaps: true,
     }));
 
     return { labels, datasets };
-  }, [selectedExperiments]);
+  }, [selectedExperiments, theme]);
 
   // F1 Score comparison bar chart
   const f1ChartData = useMemo(() => {
@@ -362,7 +351,7 @@ Legend: *** = 99% confidence, ** = 95% confidence, * = 90% confidence
     const data = selectedExperiments.map(exp => exp.metrics?.f1Score || 0);
     const backgroundColor = selectedExperiments.map((exp, index) => {
       const isTop = isBest(exp.metrics?.f1Score, bestMetrics.bestF1, true);
-      return isTop ? '#2b8a3e' : COLORS[index % COLORS.length];
+      return isTop ? theme.palette.success.main : seriesColor(theme, index);
     });
 
     return {
@@ -373,7 +362,7 @@ Legend: *** = 99% confidence, ** = 95% confidence, * = 90% confidence
         backgroundColor,
       }],
     };
-  }, [selectedExperiments, bestMetrics.bestF1]);
+  }, [selectedExperiments, bestMetrics.bestF1, theme]);
 
   // Communication cost comparison bar chart
   const commCostChartData = useMemo(() => {
@@ -383,7 +372,7 @@ Legend: *** = 99% confidence, ** = 95% confidence, * = 90% confidence
     const data = selectedExperiments.map(exp => exp.metrics?.communicationCost || 0);
     const backgroundColor = selectedExperiments.map((exp, index) => {
       const isTop = isBest(exp.metrics?.communicationCost, bestMetrics.bestCommCost, false);
-      return isTop ? '#2b8a3e' : COLORS[index % COLORS.length];
+      return isTop ? theme.palette.success.main : seriesColor(theme, index);
     });
 
     return {
@@ -394,7 +383,7 @@ Legend: *** = 99% confidence, ** = 95% confidence, * = 90% confidence
         backgroundColor,
       }],
     };
-  }, [selectedExperiments, bestMetrics.bestCommCost]);
+  }, [selectedExperiments, bestMetrics.bestCommCost, theme]);
 
   // Inference latency comparison bar chart
   const latencyChartData = useMemo(() => {
@@ -404,7 +393,7 @@ Legend: *** = 99% confidence, ** = 95% confidence, * = 90% confidence
     const data = selectedExperiments.map(exp => exp.metrics?.inferenceLatency || 0);
     const backgroundColor = selectedExperiments.map((exp, index) => {
       const isTop = isBest(exp.metrics?.inferenceLatency, bestMetrics.bestLatency, false);
-      return isTop ? '#2b8a3e' : COLORS[index % COLORS.length];
+      return isTop ? theme.palette.success.main : seriesColor(theme, index);
     });
 
     return {
@@ -415,28 +404,23 @@ Legend: *** = 99% confidence, ** = 95% confidence, * = 90% confidence
         backgroundColor,
       }],
     };
-  }, [selectedExperiments, bestMetrics.bestLatency]);
+  }, [selectedExperiments, bestMetrics.bestLatency, theme]);
 
-  const chartOptions = {
-    responsive: true,
-    maintainAspectRatio: false,
-    plugins: {
-      legend: {
-        position: 'bottom',
-      },
-    },
-  };
+  const chartOptions = useMemo(
+    () => buildBaseChartOptions(theme, { xTitle: 'Training round', yTitle: 'Loss' }),
+    [theme]
+  );
 
-  const barChartOptions = {
-    ...chartOptions,
-    scales: {
-      y: {
-        beginAtZero: true,
-      },
-    },
-  };
+  const barChartOptions = useMemo(
+    () => mergeChartOptions(buildBaseChartOptions(theme, { xTitle: 'Experiment' }), {
+      scales: { y: { beginAtZero: true } },
+    }),
+    [theme]
+  );
 
-  if (status === 'loading') {
+  // Only take over the whole page on the initial load. A background refetch
+  // (status flips to 'loading') must not blank out the selection and charts.
+  if (status === 'loading' && experiments.length === 0) {
     return <LoadingSpinner />;
   }
 
@@ -555,7 +539,7 @@ Legend: *** = 99% confidence, ** = 95% confidence, * = 90% confidence
                         align="right"
                         sx={{
                           bgcolor: isBest(exp.metrics?.accuracy, bestMetrics.bestAccuracy, true)
-                            ? '#d3f9d8'
+                            ? withAlpha(theme.palette.success.main, 0.15)
                             : 'transparent',
                           fontWeight: isBest(exp.metrics?.accuracy, bestMetrics.bestAccuracy, true)
                             ? 'bold'
@@ -580,7 +564,7 @@ Legend: *** = 99% confidence, ** = 95% confidence, * = 90% confidence
                         align="right"
                         sx={{
                           bgcolor: isBest(exp.metrics?.f1Score, bestMetrics.bestF1, true)
-                            ? '#d3f9d8'
+                            ? withAlpha(theme.palette.success.main, 0.15)
                             : 'transparent',
                           fontWeight: isBest(exp.metrics?.f1Score, bestMetrics.bestF1, true)
                             ? 'bold'
@@ -605,7 +589,7 @@ Legend: *** = 99% confidence, ** = 95% confidence, * = 90% confidence
                         align="right"
                         sx={{
                           bgcolor: isBest(exp.metrics?.communicationCost, bestMetrics.bestCommCost, false)
-                            ? '#d3f9d8'
+                            ? withAlpha(theme.palette.success.main, 0.15)
                             : 'transparent',
                           fontWeight: isBest(exp.metrics?.communicationCost, bestMetrics.bestCommCost, false)
                             ? 'bold'
@@ -630,7 +614,7 @@ Legend: *** = 99% confidence, ** = 95% confidence, * = 90% confidence
                         align="right"
                         sx={{
                           bgcolor: isBest(exp.metrics?.inferenceLatency, bestMetrics.bestLatency, false)
-                            ? '#d3f9d8'
+                            ? withAlpha(theme.palette.success.main, 0.15)
                             : 'transparent',
                           fontWeight: isBest(exp.metrics?.inferenceLatency, bestMetrics.bestLatency, false)
                             ? 'bold'

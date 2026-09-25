@@ -76,13 +76,15 @@ export const login = createAsyncThunk(
     try {
       const response = await apiClient.post('/auth/login', credentials);
       const { token, user } = response.data;
-      
+
       // Save token to localStorage
       saveTokenToStorage(token);
-      
+
       return { token, user };
     } catch (error) {
-      return rejectWithValue(error.response?.data?.message || error.message);
+      return rejectWithValue(
+        error.response?.data?.message || error.message || 'Login failed. Please try again.'
+      );
     }
   }
 );

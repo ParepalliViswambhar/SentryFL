@@ -19,14 +19,12 @@ import {
   Chip,
   Button,
 } from '@mui/material';
-import {
-  Close as CloseIcon,
-  CheckCircle as SuccessIcon,
-  Error as ErrorIcon,
-  Warning as WarningIcon,
-  Info as InfoIcon,
-  Delete as DeleteIcon,
-} from '@mui/icons-material';
+import CloseIcon from '@mui/icons-material/Close';
+import SuccessIcon from '@mui/icons-material/CheckCircle';
+import ErrorIcon from '@mui/icons-material/Error';
+import WarningIcon from '@mui/icons-material/Warning';
+import InfoIcon from '@mui/icons-material/Info';
+import DeleteIcon from '@mui/icons-material/Delete';
 import { format } from 'date-fns';
 import { clearHistory } from '../store/slices/notificationsSlice';
 
@@ -81,7 +79,7 @@ export default function NotificationHistory({ open, onClose }) {
           }}
         >
           <Typography variant="h6">Notification History</Typography>
-          <IconButton onClick={onClose} size="small">
+          <IconButton onClick={onClose} size="small" aria-label="Close">
             <CloseIcon />
           </IconButton>
         </Box>

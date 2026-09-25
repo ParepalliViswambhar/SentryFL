@@ -16,9 +16,7 @@ import { List } from 'react-window';
 import {
   Box,
   Button,
-  Chip,
   IconButton,
-  LinearProgress,
   Stack,
   Tooltip,
   Typography,
@@ -27,14 +25,8 @@ import {
 import StopIcon from '@mui/icons-material/Stop';
 import PauseIcon from '@mui/icons-material/Pause';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
-
-const statusColor = {
-  running: 'success',
-  completed: 'info',
-  failed: 'error',
-  paused: 'warning',
-  queued: 'default',
-};
+import { StatusChip, RunProgress } from './ui';
+import { roundsOf, progressOf, TERMINAL_STATUSES } from '../utils/status';
 
 /**
  * Header row for the virtualized table
@@ -82,8 +74,8 @@ TableHeader.displayName = 'TableHeader';
  */
 const ExperimentRow = memo(({ experiment, onStop, onPause, onResume, style }) => {
   const theme = useTheme();
-  const progress = experiment.progress ?? 
-    (experiment.totalRounds ? ((experiment.currentRound || 0) / experiment.totalRounds) * 100 : 0);
+  const { current, total } = roundsOf(experiment);
+  const isTerminal = TERMINAL_STATUSES.includes(experiment.status);
 
   return (
     <Box
@@ -104,35 +96,31 @@ const ExperimentRow = memo(({ experiment, onStop, onPause, onResume, style }) =>
       <Button
         component={RouterLink}
         to={`/experiments/${experiment.id}`}
-        sx={{ textTransform: 'none', justifyContent: 'flex-start' }}
+        sx={{ textTransform: 'none', justifyContent: 'flex-start', fontWeight: 600, minWidth: 0 }}
       >
-        {experiment.name || experiment.id}
+        <Box component="span" sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {experiment.name || experiment.id}
+        </Box>
       </Button>
 
       {/* Status */}
-      <Chip
-        size="small"
-        label={experiment.status || 'queued'}
-        color={statusColor[experiment.status] || 'default'}
-      />
-
-      {/* Progress */}
-      <Box>
-        <LinearProgress
-          variant="determinate"
-          value={Math.min(100, progress)}
-          sx={{ mb: 0.5 }}
-        />
-        <Typography variant="caption" color="text.secondary">
-          {Math.round(progress)}%
-          {experiment.totalRounds
-            ? ` (${experiment.currentRound || 0}/${experiment.totalRounds})`
-            : ''}
-        </Typography>
+      <Box sx={{ minWidth: 0 }}>
+        <StatusChip status={experiment.status} />
       </Box>
 
+      {/* Progress */}
+      <RunProgress
+        status={experiment.status}
+        value={progressOf(experiment)}
+        current={current}
+        total={total}
+        start={experiment.startTime}
+        end={experiment.endTime}
+        showElapsed={false}
+      />
+
       {/* Started */}
-      <Typography variant="body2">
+      <Typography variant="body2" color="text.secondary">
         {experiment.createdAt
           ? new Date(experiment.createdAt).toLocaleString()
           : 'Not started'}
@@ -162,7 +150,7 @@ const ExperimentRow = memo(({ experiment, onStop, onPause, onResume, style }) =>
             </IconButton>
           </Tooltip>
         )}
-        {!['completed', 'failed', 'stopped'].includes(experiment.status) && (
+        {!isTerminal && (
           <Tooltip title="Stop">
             <IconButton
               size="small"

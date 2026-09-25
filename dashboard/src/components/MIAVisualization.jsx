@@ -31,6 +31,7 @@ import {
   TableRow,
   Tooltip,
   Typography,
+  useTheme,
 } from '@mui/material';
 import InfoIcon from '@mui/icons-material/Info';
 import SecurityIcon from '@mui/icons-material/Security';
@@ -46,6 +47,7 @@ import {
   Legend,
 } from 'chart.js';
 import ExportButton from './ExportButton';
+import { buildBaseChartOptions, mergeChartOptions, withAlpha } from '../utils/chartTheme';
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, ChartTooltip, Legend);
 
@@ -70,6 +72,7 @@ const getPrivacyLevel = (epsilon) => {
  * @returns {JSX.Element} MIA visualization component
  */
 const MIAVisualization = ({ miaResults = [], accountingMethod = 'RDP' }) => {
+  const theme = useTheme();
   const successRateChartRef = useRef(null);
   const comparisonChartRef = useRef(null);
 
@@ -90,8 +93,8 @@ const MIAVisualization = ({ miaResults = [], accountingMethod = 'RDP' }) => {
         {
           label: 'MIA Success Rate',
           data: successRates,
-          borderColor: '#d32f2f',
-          backgroundColor: 'rgba(211, 47, 47, 0.1)',
+          borderColor: theme.palette.error.main,
+          backgroundColor: withAlpha(theme.palette.error.main, 0.1),
           fill: true,
           tension: 0.3,
           pointRadius: 4,
@@ -100,7 +103,7 @@ const MIAVisualization = ({ miaResults = [], accountingMethod = 'RDP' }) => {
         {
           label: 'Baseline (Random Guessing)',
           data: baselineRates,
-          borderColor: '#757575',
+          borderColor: theme.palette.text.disabled,
           backgroundColor: 'transparent',
           borderDash: [5, 5],
           borderWidth: 2,
@@ -109,7 +112,7 @@ const MIAVisualization = ({ miaResults = [], accountingMethod = 'RDP' }) => {
         },
       ],
     };
-  }, [sortedResults]);
+  }, [sortedResults, theme]);
 
   // Prepare privacy level comparison data
   const comparisonData = useMemo(() => {
@@ -137,110 +140,84 @@ const MIAVisualization = ({ miaResults = [], accountingMethod = 'RDP' }) => {
           label: 'Average MIA Success Rate',
           data: avgSuccessRates,
           backgroundColor: [
-            'rgba(46, 125, 50, 0.8)',  // Strong - Green
-            'rgba(237, 108, 2, 0.8)',  // Moderate - Orange
-            'rgba(211, 47, 47, 0.8)',  // Weak - Red
+            withAlpha(theme.palette.success.main, 0.8),  // Strong - Green
+            withAlpha(theme.palette.warning.main, 0.8),  // Moderate - Orange
+            withAlpha(theme.palette.error.main, 0.8),    // Weak - Red
           ],
           borderColor: [
-            '#2e7d32',
-            '#ed6c02',
-            '#d32f2f',
+            theme.palette.success.main,
+            theme.palette.warning.main,
+            theme.palette.error.main,
           ],
           borderWidth: 2,
         },
       ],
     };
-  }, [sortedResults]);
+  }, [sortedResults, theme]);
 
   // Chart options for success rate chart
-  const successRateOptions = {
-    responsive: true,
-    maintainAspectRatio: false,
-    plugins: {
-      legend: {
-        position: 'bottom',
-        labels: {
-          usePointStyle: true,
-          padding: 15,
-        },
-      },
-      tooltip: {
-        enabled: true,
-        callbacks: {
-          title: (context) => `ε = ${context[0].label}`,
-          label: (context) => {
-            const label = context.dataset.label || '';
-            const value = context.parsed.y.toFixed(2);
-            return `${label}: ${value}%`;
+  const successRateOptions = useMemo(() => mergeChartOptions(
+    buildBaseChartOptions(theme, { xTitle: 'Privacy Budget (ε)', yTitle: 'Attack Success Rate (%)' }),
+    {
+      plugins: {
+        tooltip: {
+          callbacks: {
+            title: (context) => `ε = ${context[0].label}`,
+            label: (context) => {
+              const label = context.dataset.label || '';
+              const value = context.parsed.y.toFixed(2);
+              return `${label}: ${value}%`;
+            },
+            afterLabel: (context) => {
+              const epsilon = parseFloat(context.label);
+              return `Privacy Level: ${getPrivacyLevel(epsilon)}`;
+            },
+            footer: () => `Accounting Method: ${accountingMethod}`,
           },
-          afterLabel: (context) => {
-            const epsilon = parseFloat(context.label);
-            return `Privacy Level: ${getPrivacyLevel(epsilon)}`;
+        },
+      },
+      scales: {
+        y: {
+          min: 0,
+          max: 100,
+          ticks: {
+            color: theme.palette.text.secondary,
+            font: { family: theme.typography.fontFamily },
+            callback: (value) => `${value}%`,
           },
-          footer: () => `Accounting Method: ${accountingMethod}`,
         },
       },
-    },
-    scales: {
-      x: {
-        title: {
-          display: true,
-          text: 'Privacy Budget (ε)',
-        },
-      },
-      y: {
-        title: {
-          display: true,
-          text: 'Attack Success Rate (%)',
-        },
-        min: 0,
-        max: 100,
-        ticks: {
-          callback: (value) => `${value}%`,
-        },
-      },
-    },
-  };
+    }
+  ), [theme, accountingMethod]);
 
   // Chart options for comparison chart
-  const comparisonOptions = {
-    responsive: true,
-    maintainAspectRatio: false,
-    plugins: {
-      legend: {
-        display: false,
-      },
-      tooltip: {
-        enabled: true,
-        callbacks: {
-          label: (context) => {
-            const value = context.parsed.y.toFixed(2);
-            return `Average Success Rate: ${value}%`;
+  const comparisonOptions = useMemo(() => mergeChartOptions(
+    buildBaseChartOptions(theme, { xTitle: 'Privacy Level', yTitle: 'Average Attack Success Rate (%)', legend: false }),
+    {
+      plugins: {
+        tooltip: {
+          callbacks: {
+            label: (context) => {
+              const value = context.parsed.y.toFixed(2);
+              return `Average Success Rate: ${value}%`;
+            },
+            footer: () => `Lower is better (closer to 50% baseline)`,
           },
-          footer: () => `Lower is better (closer to 50% baseline)`,
         },
       },
-    },
-    scales: {
-      x: {
-        title: {
-          display: true,
-          text: 'Privacy Level',
+      scales: {
+        y: {
+          min: 0,
+          max: 100,
+          ticks: {
+            color: theme.palette.text.secondary,
+            font: { family: theme.typography.fontFamily },
+            callback: (value) => `${value}%`,
+          },
         },
       },
-      y: {
-        title: {
-          display: true,
-          text: 'Average Attack Success Rate (%)',
-        },
-        min: 0,
-        max: 100,
-        ticks: {
-          callback: (value) => `${value}%`,
-        },
-      },
-    },
-  };
+    }
+  ), [theme]);
 
   return (
     <Stack spacing={2}>

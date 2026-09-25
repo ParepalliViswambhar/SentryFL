@@ -46,6 +46,10 @@ router.post('/metrics', (req, res) => {
         wsServer.broadcastExperimentStatusChange(experimentId, data);
         break;
 
+      case 'heartbeat':
+        wsServer.broadcastHeartbeat(experimentId, data);
+        break;
+
       case 'error':
         wsServer.broadcastError(experimentId, data);
         break;

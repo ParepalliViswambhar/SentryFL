@@ -1,148 +1,109 @@
 /**
  * App Component Integration Tests
- * 
- * Tests for routing configuration and navigation
- * 
- * **Validates: Requirements 27.2, 27.5**
- * 
- * Tests:
- * - Route navigation and URL changes
- * - PrivateRoute redirects unauthenticated users to /login
- * - Protected routes require authentication
+ *
+ * Tests for routing configuration and navigation.
+ *
+ * Redesign notes:
+ * - The Layout renders its navigation in TWO drawers (a keepMounted temporary
+ *   drawer and a permanent drawer), so every nav label and the brand text render
+ *   more than once in jsdom. Assertions on those use getAllByText.
+ * - MUI marks required fields with an asterisk, so the accessible label is
+ *   "Username *" / "Password *"; queries use an anchored regex, not an exact string.
+ * - Page headings were rebranded (e.g. "Overview" instead of "Dashboard"); tests
+ *   assert on stable, page-unique body text that renders regardless of fetch state.
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
-import userEvent from '@testing-library/user-event';
 import App from './App';
+
+const renderAt = (path) =>
+  render(
+    <MemoryRouter initialEntries={[path]}>
+      <App />
+    </MemoryRouter>
+  );
+
+// Required MUI fields expose their label as "Username *"/"Password *".
+const usernameField = () => screen.getByLabelText(/^username/i);
+const passwordField = () => screen.getByLabelText(/^password/i);
 
 describe('App Routing Integration', () => {
   beforeEach(() => {
-    // Clear localStorage before each test
     localStorage.clear();
   });
 
   it('renders login page for unauthenticated users', () => {
-    render(
-      <MemoryRouter initialEntries={['/']}>
-        <App />
-      </MemoryRouter>
-    );
-
+    renderAt('/');
     expect(screen.getByText('SentryFL')).toBeInTheDocument();
-    expect(screen.getByLabelText('Username')).toBeInTheDocument();
-    expect(screen.getByLabelText('Password')).toBeInTheDocument();
+    expect(usernameField()).toBeInTheDocument();
+    expect(passwordField()).toBeInTheDocument();
   });
 
   it('renders dashboard for authenticated users at root path', () => {
     localStorage.setItem('authToken', 'test-token');
-
-    render(
-      <MemoryRouter initialEntries={['/']}>
-        <App />
-      </MemoryRouter>
-    );
-
-    expect(screen.getByText('Dashboard')).toBeInTheDocument();
-    expect(screen.getByText('Active Experiments')).toBeInTheDocument();
+    renderAt('/');
+    expect(screen.getByText('Live status of your federated learning runs')).toBeInTheDocument();
+    expect(screen.getByText('Active runs')).toBeInTheDocument();
   });
-
   it('renders new experiment page at /experiments/new', () => {
     localStorage.setItem('authToken', 'test-token');
-
-    render(
-      <MemoryRouter initialEntries={['/experiments/new']}>
-        <App />
-      </MemoryRouter>
-    );
-
+    renderAt('/experiments/new');
     expect(screen.getByText('Create New Experiment')).toBeInTheDocument();
   });
 
   it('renders experiment list page at /experiments', () => {
     localStorage.setItem('authToken', 'test-token');
-
-    render(
-      <MemoryRouter initialEntries={['/experiments']}>
-        <App />
-      </MemoryRouter>
-    );
-
-    expect(screen.getByText('Experiments')).toBeInTheDocument();
-    expect(screen.getByText('View and manage all federated learning experiments')).toBeInTheDocument();
+    renderAt('/experiments');
+    // The count subtitle renders regardless of fetch state and is unique to this page.
+    expect(screen.getByText('0 experiments')).toBeInTheDocument();
   });
 
   it('renders experiment detail page at /experiments/:id', () => {
     localStorage.setItem('authToken', 'test-token');
-
-    render(
-      <MemoryRouter initialEntries={['/experiments/test-exp-123']}>
-        <App />
-      </MemoryRouter>
-    );
-
-    expect(screen.getByText('Experiment Details')).toBeInTheDocument();
-    expect(screen.getByText('Viewing experiment: test-exp-123')).toBeInTheDocument();
+    renderAt('/experiments/test-exp-123');
+    // Detail page mounts and fetches; the loading indicator is deterministic.
+    expect(screen.getByLabelText('Loading experiment')).toBeInTheDocument();
   });
 
-  it('renders comparison page at /comparison', () => {
+  it('renders comparison page at /comparison', async () => {
     localStorage.setItem('authToken', 'test-token');
-
-    render(
-      <MemoryRouter initialEntries={['/comparison']}>
-        <App />
-      </MemoryRouter>
-    );
-
-    expect(screen.getByText('Experiment Comparison')).toBeInTheDocument();
+    renderAt('/comparison');
+    // Comparison shows a full-page spinner while the initial fetch is loading
+    // (Comparison.jsx guards on `status === 'loading' && experiments.length === 0`).
+    // With no server the fetch rejects, the gate clears, and the heading renders.
+    await waitFor(() => {
+      expect(screen.getByText('Experiment Comparison')).toBeInTheDocument();
+    });
   });
 
   it('renders settings page at /settings', () => {
     localStorage.setItem('authToken', 'test-token');
-
-    render(
-      <MemoryRouter initialEntries={['/settings']}>
-        <App />
-      </MemoryRouter>
-    );
-
-    expect(screen.getByText('Settings')).toBeInTheDocument();
-    expect(screen.getByText('Configure application preferences and system settings')).toBeInTheDocument();
+    renderAt('/settings');
+    expect(
+      screen.getByText('Configure application preferences and system settings')
+    ).toBeInTheDocument();
   });
 
   it('redirects to login for protected routes without auth', async () => {
-    render(
-      <MemoryRouter initialEntries={['/experiments']}>
-        <App />
-      </MemoryRouter>
-    );
-
-    // Should redirect to login
+    renderAt('/experiments');
     await waitFor(() => {
       expect(screen.getByText('SentryFL')).toBeInTheDocument();
-      expect(screen.getByLabelText('Username')).toBeInTheDocument();
+      expect(usernameField()).toBeInTheDocument();
     });
   });
 
   it('maintains layout with navigation on authenticated routes', () => {
     localStorage.setItem('authToken', 'test-token');
-
-    render(
-      <MemoryRouter initialEntries={['/']}>
-        <App />
-      </MemoryRouter>
-    );
-
-    // Check layout is present
-    expect(screen.getByText('Federated Learning Dashboard')).toBeInTheDocument();
-    
-    // Check navigation items are present
-    expect(screen.getByText('Dashboard')).toBeInTheDocument();
-    expect(screen.getByText('New Experiment')).toBeInTheDocument();
-    expect(screen.getByText('Experiments')).toBeInTheDocument();
-    expect(screen.getByText('Comparison')).toBeInTheDocument();
-    expect(screen.getByText('Settings')).toBeInTheDocument();
+    renderAt('/');
+    // Brand + nav labels render in both drawers, so match all copies.
+    expect(screen.getAllByText('Federated Learning').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Overview').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('New Experiment').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Experiments').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Comparison').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Settings').length).toBeGreaterThan(0);
   });
 });
 
@@ -153,100 +114,45 @@ describe('Route Navigation Tests', () => {
   });
 
   it('navigates to /experiments/new when New Experiment link is clicked', async () => {
-    const user = userEvent.setup();
-    
-    render(
-      <MemoryRouter initialEntries={['/']}>
-        <App />
-      </MemoryRouter>
-    );
-
-    // Click on New Experiment link
-    const newExpLink = screen.getByText('New Experiment');
-    await user.click(newExpLink);
-
-    // Verify navigation occurred
+    renderAt('/');
+    fireEvent.click(screen.getAllByText('New Experiment')[0]);
     await waitFor(() => {
       expect(screen.getByText('Create New Experiment')).toBeInTheDocument();
     });
   });
 
   it('navigates to /experiments when Experiments link is clicked', async () => {
-    const user = userEvent.setup();
-    
-    render(
-      <MemoryRouter initialEntries={['/']}>
-        <App />
-      </MemoryRouter>
-    );
-
-    // Click on Experiments link
-    const experimentsLink = screen.getByText('Experiments');
-    await user.click(experimentsLink);
-
-    // Verify navigation occurred
+    renderAt('/');
+    fireEvent.click(screen.getAllByText('Experiments')[0]);
     await waitFor(() => {
-      expect(screen.getByText('View and manage all federated learning experiments')).toBeInTheDocument();
+      expect(screen.getByText('0 experiments')).toBeInTheDocument();
     });
   });
 
   it('navigates to /comparison when Comparison link is clicked', async () => {
-    const user = userEvent.setup();
-    
-    render(
-      <MemoryRouter initialEntries={['/']}>
-        <App />
-      </MemoryRouter>
-    );
-
-    // Click on Comparison link
-    const comparisonLink = screen.getByText('Comparison');
-    await user.click(comparisonLink);
-
-    // Verify navigation occurred
+    renderAt('/');
+    fireEvent.click(screen.getAllByText('Comparison')[0]);
     await waitFor(() => {
       expect(screen.getByText('Experiment Comparison')).toBeInTheDocument();
     });
   });
 
   it('navigates to /settings when Settings link is clicked', async () => {
-    const user = userEvent.setup();
-    
-    render(
-      <MemoryRouter initialEntries={['/']}>
-        <App />
-      </MemoryRouter>
-    );
-
-    // Click on Settings link
-    const settingsLink = screen.getByText('Settings');
-    await user.click(settingsLink);
-
-    // Verify navigation occurred
+    renderAt('/');
+    fireEvent.click(screen.getAllByText('Settings')[0]);
     await waitFor(() => {
-      expect(screen.getByText('Configure application preferences and system settings')).toBeInTheDocument();
+      expect(
+        screen.getByText('Configure application preferences and system settings')
+      ).toBeInTheDocument();
     });
   });
 
-  it('navigates back to dashboard when Dashboard link is clicked', async () => {
-    const user = userEvent.setup();
-    
-    render(
-      <MemoryRouter initialEntries={['/experiments']}>
-        <App />
-      </MemoryRouter>
-    );
-
-    // Initially on experiments page
-    expect(screen.getByText('View and manage all federated learning experiments')).toBeInTheDocument();
-
-    // Click on Dashboard link
-    const dashboardLink = screen.getByText('Dashboard');
-    await user.click(dashboardLink);
-
-    // Verify navigation occurred
+  it('navigates back to the overview when Overview link is clicked', async () => {
+    renderAt('/experiments');
+    expect(screen.getByText('0 experiments')).toBeInTheDocument();
+    fireEvent.click(screen.getAllByText('Overview')[0]);
     await waitFor(() => {
-      expect(screen.getByText('Active Experiments')).toBeInTheDocument();
+      expect(screen.getByText('Live status of your federated learning runs')).toBeInTheDocument();
     });
   });
 });
@@ -257,92 +163,50 @@ describe('PrivateRoute Authentication Guard Tests', () => {
   });
 
   it('redirects unauthenticated user from / to /login', () => {
-    render(
-      <MemoryRouter initialEntries={['/']}>
-        <App />
-      </MemoryRouter>
-    );
-
-    // Should redirect to login
+    renderAt('/');
     expect(screen.getByText('SentryFL')).toBeInTheDocument();
-    expect(screen.getByLabelText('Username')).toBeInTheDocument();
-    expect(screen.getByLabelText('Password')).toBeInTheDocument();
+    expect(usernameField()).toBeInTheDocument();
+    expect(passwordField()).toBeInTheDocument();
   });
 
   it('redirects unauthenticated user from /experiments to /login', () => {
-    render(
-      <MemoryRouter initialEntries={['/experiments']}>
-        <App />
-      </MemoryRouter>
-    );
-
-    // Should redirect to login
+    renderAt('/experiments');
     expect(screen.getByText('SentryFL')).toBeInTheDocument();
-    expect(screen.getByLabelText('Username')).toBeInTheDocument();
+    expect(usernameField()).toBeInTheDocument();
   });
 
   it('redirects unauthenticated user from /experiments/new to /login', () => {
-    render(
-      <MemoryRouter initialEntries={['/experiments/new']}>
-        <App />
-      </MemoryRouter>
-    );
-
-    // Should redirect to login
+    renderAt('/experiments/new');
     expect(screen.getByText('SentryFL')).toBeInTheDocument();
-    expect(screen.getByLabelText('Username')).toBeInTheDocument();
+    expect(usernameField()).toBeInTheDocument();
   });
 
   it('redirects unauthenticated user from /experiments/:id to /login', () => {
-    render(
-      <MemoryRouter initialEntries={['/experiments/test-123']}>
-        <App />
-      </MemoryRouter>
-    );
-
-    // Should redirect to login
+    renderAt('/experiments/test-123');
     expect(screen.getByText('SentryFL')).toBeInTheDocument();
-    expect(screen.getByLabelText('Username')).toBeInTheDocument();
+    expect(usernameField()).toBeInTheDocument();
   });
 
   it('redirects unauthenticated user from /comparison to /login', () => {
-    render(
-      <MemoryRouter initialEntries={['/comparison']}>
-        <App />
-      </MemoryRouter>
-    );
-
-    // Should redirect to login
+    renderAt('/comparison');
     expect(screen.getByText('SentryFL')).toBeInTheDocument();
-    expect(screen.getByLabelText('Username')).toBeInTheDocument();
+    expect(usernameField()).toBeInTheDocument();
   });
 
   it('redirects unauthenticated user from /settings to /login', () => {
-    render(
-      <MemoryRouter initialEntries={['/settings']}>
-        <App />
-      </MemoryRouter>
-    );
-
-    // Should redirect to login
+    renderAt('/settings');
     expect(screen.getByText('SentryFL')).toBeInTheDocument();
-    expect(screen.getByLabelText('Username')).toBeInTheDocument();
+    expect(usernameField()).toBeInTheDocument();
   });
 
   it('allows authenticated user to access protected routes', () => {
     localStorage.setItem('authToken', 'test-token');
-
-    render(
-      <MemoryRouter initialEntries={['/']}>
-        <App />
-      </MemoryRouter>
-    );
-
-    // Should NOT redirect to login
-    expect(screen.queryByLabelText('Username')).not.toBeInTheDocument();
-    expect(screen.queryByLabelText('Password')).not.toBeInTheDocument();
-    
-    // Should show dashboard content
-    expect(screen.getByText('Dashboard')).toBeInTheDocument();
+    renderAt('/');
+    // Should NOT redirect to login.
+    expect(screen.queryByLabelText(/^username/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/^password/i)).not.toBeInTheDocument();
+    // Should show dashboard content.
+    expect(screen.getByText('Live status of your federated learning runs')).toBeInTheDocument();
   });
 });
+

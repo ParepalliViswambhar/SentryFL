@@ -18,10 +18,14 @@ import authReducer, {
   selectIsAdmin,
 } from './authSlice';
 import { configureStore } from '@reduxjs/toolkit';
-import axios from 'axios';
+import apiClient from '../../api/client';
 
-// Mock axios
-vi.mock('axios');
+// Mock the API client (the configured axios instance). Mocking `axios` itself
+// makes axios.create() return undefined, which throws in api/client.js at
+// import time (reading `.interceptors` of undefined) and collapses the suite.
+vi.mock('../../api/client', () => ({
+  default: { post: vi.fn(), get: vi.fn() },
+}));
 
 describe('authSlice', () => {
   // Mock localStorage
@@ -282,14 +286,14 @@ describe('authSlice', () => {
       expect(selectIsAdmin(userState)).toBe(false);
     });
 
-    it('should return undefined for isAdmin when no user', () => {
+    it('should return false for isAdmin when no user', () => {
       const noUserState = {
         auth: {
           ...mockState.auth,
           user: null,
         },
       };
-      expect(selectIsAdmin(noUserState)).toBeUndefined();
+      expect(selectIsAdmin(noUserState)).toBe(false);
     });
   });
 
@@ -303,10 +307,9 @@ describe('authSlice', () => {
         },
       });
       
-      // Reset axios mocks
-      axios.post = vi.fn();
-      axios.get = vi.fn();
-      axios.defaults = { headers: { common: {} } };
+      // Reset API client mocks
+      apiClient.post = vi.fn();
+      apiClient.get = vi.fn();
     });
 
     it('should handle successful login flow', async () => {
@@ -327,7 +330,7 @@ describe('authSlice', () => {
         },
       };
 
-      axios.post.mockResolvedValueOnce(mockResponse);
+      apiClient.post.mockResolvedValueOnce(mockResponse);
 
       await store.dispatch(login(mockCredentials));
 
@@ -350,9 +353,9 @@ describe('authSlice', () => {
       };
 
       const errorMessage = 'Invalid credentials';
-      axios.post.mockRejectedValueOnce({
+      apiClient.post.mockRejectedValueOnce({
         response: {
-          data: errorMessage,
+          data: { message: errorMessage },
         },
       });
 
@@ -375,7 +378,7 @@ describe('authSlice', () => {
           user: { id: '1', email: 'test@example.com' },
         },
       };
-      axios.post.mockResolvedValueOnce(mockResponse);
+      apiClient.post.mockResolvedValueOnce(mockResponse);
       await store.dispatch(login({ email: 'test@example.com', password: 'pass' }));
 
       // Then logout

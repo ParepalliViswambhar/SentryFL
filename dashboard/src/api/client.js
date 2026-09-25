@@ -6,6 +6,7 @@
 
 import axios from 'axios';
 import { isTokenExpired } from '../utils/tokenUtils';
+import { addApiError } from '../store/slices/notificationsSlice';
 
 // Store reference will be set by setStoreReference
 let storeRef = null;
@@ -66,6 +67,11 @@ apiClient.interceptors.response.use(
     return response;
   },
   (error) => {
+    // Requests may opt out of the global error toast via `skipErrorToast`
+    // (e.g. the live status-poll, which can briefly 404 on a just-created
+    // experiment). The 401 redirect below is a security action and always runs.
+    const skipErrorToast = error.config?.skipErrorToast;
+
     // Handle common errors
     if (error.response) {
       // Server responded with error status
@@ -75,14 +81,12 @@ apiClient.interceptors.response.use(
         localStorage.removeItem('authToken');
         window.location.href = '/login';
       }
-      
+
       // Dispatch notification if store is available
-      if (storeRef) {
-        const { addApiError } = require('../store/slices/notificationsSlice');
-        
+      if (storeRef && !skipErrorToast) {
         let message = data.message || error.message;
         let details = '';
-        
+
         switch (status) {
           case 401:
             message = 'Session expired. Please log in again.';
@@ -107,10 +111,10 @@ apiClient.interceptors.response.use(
             message = data.message || 'An error occurred';
             details = data.details || `Status: ${status}`;
         }
-        
+
         storeRef.dispatch(addApiError({ message, details, status }));
       }
-      
+
       // Console logging for debugging
       const logMessage = {
         403: 'Access forbidden:',
@@ -124,8 +128,7 @@ apiClient.interceptors.response.use(
       }
     } else if (error.request) {
       // Request made but no response
-      if (storeRef) {
-        const { addApiError } = require('../store/slices/notificationsSlice');
+      if (storeRef && !skipErrorToast) {
         storeRef.dispatch(addApiError({
           message: 'Network error: No response from server',
           details: 'Please check your internet connection and try again',
@@ -135,8 +138,7 @@ apiClient.interceptors.response.use(
       console.error('Network error: No response from server');
     } else {
       // Something else happened
-      if (storeRef && error.message !== 'Token expired') {
-        const { addApiError } = require('../store/slices/notificationsSlice');
+      if (storeRef && !skipErrorToast && error.message !== 'Token expired') {
         storeRef.dispatch(addApiError({
           message: 'Request error',
           details: error.message,
@@ -145,7 +147,7 @@ apiClient.interceptors.response.use(
       }
       console.error('Request error:', error.message);
     }
-    
+
     return Promise.reject(error);
   }
 );

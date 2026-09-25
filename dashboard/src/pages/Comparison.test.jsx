@@ -16,16 +16,19 @@ vi.mock('../components/LoadingSpinner', () => ({
   default: () => <div data-testid="loading-spinner">Loading...</div>,
 }));
 
-// Mock JSZip
+// Mock JSZip — use a regular function so `new JSZip()` is constructable (an
+// arrow implementation has no [[Construct]] and throws "is not a constructor").
 vi.mock('jszip', () => {
   return {
-    default: vi.fn().mockImplementation(() => ({
-      file: vi.fn(),
-      folder: vi.fn(() => ({
+    default: vi.fn(function () {
+      return {
         file: vi.fn(),
-      })),
-      generateAsync: vi.fn().mockResolvedValue(new Blob(['mock zip content'])),
-    })),
+        folder: vi.fn(() => ({
+          file: vi.fn(),
+        })),
+        generateAsync: vi.fn().mockResolvedValue(new Blob(['mock zip content'])),
+      };
+    }),
   };
 });
 
@@ -84,17 +87,31 @@ describe('Comparison Page', () => {
   let mockAppendChild;
   let mockRemoveChild;
   let mockClick;
+  let realCreateElement;
 
   beforeEach(() => {
-    // Mock DOM methods for download functionality
+    // Mock DOM methods for download functionality. These must be element-aware:
+    // testing-library's render() also calls document.createElement('div') and
+    // document.body.appendChild(container) to build its render container, so a
+    // blanket stub returns a fake object for that container and createRoot()
+    // throws "Target container is not a DOM element". We intercept ONLY the
+    // download anchor (an <a>, returned as a plain object that is not a Node)
+    // and pass every real element through to the genuine implementation.
     mockClick = vi.fn();
-    mockCreateElement = vi.spyOn(document, 'createElement').mockReturnValue({
-      setAttribute: vi.fn(),
-      click: mockClick,
-      style: {},
-    });
-    mockAppendChild = vi.spyOn(document.body, 'appendChild').mockImplementation(() => {});
-    mockRemoveChild = vi.spyOn(document.body, 'removeChild').mockImplementation(() => {});
+    realCreateElement = document.createElement.bind(document);
+    mockCreateElement = vi.spyOn(document, 'createElement').mockImplementation((tag) =>
+      tag === 'a'
+        ? { setAttribute: vi.fn(), click: mockClick, style: {} }
+        : realCreateElement(tag)
+    );
+    const realAppendChild = document.body.appendChild.bind(document.body);
+    mockAppendChild = vi.spyOn(document.body, 'appendChild').mockImplementation((node) =>
+      node instanceof Node ? realAppendChild(node) : node
+    );
+    const realRemoveChild = document.body.removeChild.bind(document.body);
+    mockRemoveChild = vi.spyOn(document.body, 'removeChild').mockImplementation((node) =>
+      node instanceof Node ? realRemoveChild(node) : node
+    );
     global.URL.createObjectURL = vi.fn(() => 'mock-url');
     global.URL.revokeObjectURL = vi.fn();
   });
@@ -349,7 +366,8 @@ describe('Comparison Page', () => {
 
       // Select first experiment
       await user.click(checkboxes[0]);
-      expect(screen.getByText('Experiment 1')).toBeInTheDocument();
+      // The name shows in both the selection list and the comparison view.
+      expect(screen.getAllByText('Experiment 1').length).toBeGreaterThan(0);
 
       // Select second experiment
       await user.click(checkboxes[1]);
@@ -612,14 +630,15 @@ describe('Comparison Page', () => {
       const checkboxes = screen.getAllByRole('checkbox');
       await user.click(checkboxes[0]);
 
-      // Mock setAttribute to capture filename
+      // Mock setAttribute to capture filename (still only for the <a> anchor,
+      // so React-created DOM during the click keeps getting real elements).
       const mockSetAttribute = vi.fn();
 
-      mockCreateElement.mockReturnValue({
-        setAttribute: mockSetAttribute,
-        click: mockClick,
-        style: {},
-      });
+      mockCreateElement.mockImplementation((tag) =>
+        tag === 'a'
+          ? { setAttribute: mockSetAttribute, click: mockClick, style: {} }
+          : realCreateElement(tag)
+      );
 
       // Click Export CSV
       const exportButton = screen.getByText('Export CSV');

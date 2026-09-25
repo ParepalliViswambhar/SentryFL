@@ -1,5 +1,5 @@
 import { useMemo, useState, useRef, memo } from 'react';
-import { Alert, Box, Button, Chip, Grid, LinearProgress, Paper, Stack, Typography } from '@mui/material';
+import { Alert, Box, Button, Chip, Grid, LinearProgress, Paper, Stack, Typography, useTheme } from '@mui/material';
 import ZoomInIcon from '@mui/icons-material/ZoomIn';
 import ZoomOutIcon from '@mui/icons-material/ZoomOut';
 import RestartAltIcon from '@mui/icons-material/RestartAlt';
@@ -9,40 +9,33 @@ import zoomPlugin from 'chartjs-plugin-zoom';
 import ExportButton from './ExportButton';
 import { exportMetricsAsCSV, exportAsJSON } from '../utils/exportUtils';
 import { downsampleChartData, needsDownsampling } from '../utils/dataUtils';
-import { getRealtimeChartOptions, getOptimalAnimationDuration } from '../utils/chartConfig';
+import { getOptimalAnimationDuration } from '../utils/chartConfig';
+import { buildBaseChartOptions, mergeChartOptions, seriesColor, withAlpha } from '../utils/chartTheme';
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend, Filler, zoomPlugin);
 
-const COLORS = ['#0b7285', '#e67700', '#5f3dc4', '#2b8a3e', '#c2255c', '#495057'];
 const chartHeight = { height: 280 };
 
 const numeric = (value) => (typeof value === 'number' && Number.isFinite(value) ? value : null);
 const getClientLosses = (metric) => metric?.clientLosses || metric?.perClientLoss || metric?.client_loss || {};
 
-// Base options with performance optimization (Requirement 37.10: 60 FPS animation)
-const baseOptions = {
-  responsive: true,
-  maintainAspectRatio: false,
-  // Animation duration optimized for 60 FPS - will be further adjusted based on data size
-  animation: { duration: 150 },
-  interaction: { mode: 'index', intersect: false },
+// Pan/zoom behaviour merged on top of the themed base for every line chart here.
+const ZOOM_EXTRAS = {
   plugins: {
-    legend: { position: 'bottom' },
-    tooltip: { enabled: true },
     zoom: {
       pan: { enabled: true, mode: 'x' },
       zoom: { wheel: { enabled: true }, pinch: { enabled: true }, mode: 'x' },
     },
   },
-  scales: { x: { title: { display: true, text: 'Training round' } } },
 };
 
 const TrainingMetricsChart = ({ metrics = [], totalRounds = 0, status = 'disconnected', onReset }) => {
+  const theme = useTheme();
   const [windowSize, setWindowSize] = useState(null);
   const lossChartRef = useRef(null);
   const accuracyChartRef = useRef(null);
   const clientChartRef = useRef(null);
-  
+
   const rounds = metrics.map((metric) => metric.round).filter(Number.isFinite);
   const visibleMetrics = windowSize ? metrics.slice(-windowSize) : metrics;
   const visibleRounds = visibleMetrics.map((metric) => metric.round);
@@ -50,22 +43,24 @@ const TrainingMetricsChart = ({ metrics = [], totalRounds = 0, status = 'disconn
   const progress = totalRounds ? Math.min(100, ((lastMetric?.round || 0) / totalRounds) * 100) : 0;
 
   const lossData = useMemo(() => {
+    const stroke = seriesColor(theme, 0);
     const rawData = {
       labels: visibleRounds,
-      datasets: [{ label: 'Training loss', data: visibleMetrics.map((metric) => numeric(metric.loss)), borderColor: '#0b7285', backgroundColor: 'rgba(11,114,133,.12)', fill: true, tension: 0.25 }],
+      datasets: [{ label: 'Training loss', data: visibleMetrics.map((metric) => numeric(metric.loss)), borderColor: stroke, backgroundColor: withAlpha(stroke, 0.12), fill: true, tension: 0.25 }],
     };
     // Downsample if dataset is too large (Requirement 37.6)
     return needsDownsampling(rawData, 1000) ? downsampleChartData(rawData, 1000) : rawData;
-  }, [visibleMetrics, visibleRounds]);
+  }, [theme, visibleMetrics, visibleRounds]);
 
   const accuracyData = useMemo(() => {
+    const stroke = seriesColor(theme, 2);
     const rawData = {
       labels: visibleRounds,
-      datasets: [{ label: 'Global accuracy', data: visibleMetrics.map((metric) => numeric(metric.accuracy)), borderColor: '#e67700', backgroundColor: 'rgba(230,119,0,.12)', fill: true, tension: 0.25 }],
+      datasets: [{ label: 'Global accuracy', data: visibleMetrics.map((metric) => numeric(metric.accuracy)), borderColor: stroke, backgroundColor: withAlpha(stroke, 0.12), fill: true, tension: 0.25 }],
     };
     // Downsample if dataset is too large (Requirement 37.6)
     return needsDownsampling(rawData, 1000) ? downsampleChartData(rawData, 1000) : rawData;
-  }, [visibleMetrics, visibleRounds]);
+  }, [theme, visibleMetrics, visibleRounds]);
 
   const clientData = useMemo(() => {
     const clientIds = [...new Set(metrics.flatMap((metric) => Object.keys(getClientLosses(metric))))];
@@ -74,37 +69,38 @@ const TrainingMetricsChart = ({ metrics = [], totalRounds = 0, status = 'disconn
       datasets: clientIds.map((clientId, index) => ({
         label: clientId,
         data: visibleMetrics.map((metric) => numeric(getClientLosses(metric)[clientId])),
-        borderColor: COLORS[index % COLORS.length],
+        borderColor: seriesColor(theme, index),
         tension: 0.25,
         spanGaps: true,
       })),
     };
     // Downsample if dataset is too large (Requirement 37.6)
     return needsDownsampling(rawData, 1000) ? downsampleChartData(rawData, 1000) : rawData;
-  }, [metrics, visibleMetrics, visibleRounds]);
+  }, [theme, metrics, visibleMetrics, visibleRounds]);
 
-  // Optimize chart options based on data size (Requirement 37.10: maintain 60 FPS)
+  // Themed base (re-skins on dark/light toggle) with per-data-size animation
+  // tuning and pan/zoom merged on top (Requirement 37.10: maintain 60 FPS).
   const optimizedLossOptions = useMemo(() => {
-    return getRealtimeChartOptions({
-      ...baseOptions,
+    return mergeChartOptions(buildBaseChartOptions(theme, { xTitle: 'Training round', yTitle: 'Loss' }), {
       animation: { duration: getOptimalAnimationDuration(visibleRounds.length) },
+      ...ZOOM_EXTRAS,
     });
-  }, [visibleRounds.length]);
+  }, [theme, visibleRounds.length]);
 
   const optimizedAccuracyOptions = useMemo(() => {
-    return getRealtimeChartOptions({
-      ...baseOptions,
+    return mergeChartOptions(buildBaseChartOptions(theme, { xTitle: 'Training round', yTitle: 'Accuracy' }), {
       animation: { duration: getOptimalAnimationDuration(visibleRounds.length) },
-      scales: { ...baseOptions.scales, y: { min: 0, max: 1 } },
+      scales: { y: { min: 0, max: 1 } },
+      ...ZOOM_EXTRAS,
     });
-  }, [visibleRounds.length]);
+  }, [theme, visibleRounds.length]);
 
   const optimizedClientOptions = useMemo(() => {
-    return getRealtimeChartOptions({
-      ...baseOptions,
+    return mergeChartOptions(buildBaseChartOptions(theme, { xTitle: 'Training round', yTitle: 'Client loss' }), {
       animation: { duration: getOptimalAnimationDuration(visibleRounds.length) },
+      ...ZOOM_EXTRAS,
     });
-  }, [visibleRounds.length]);
+  }, [theme, visibleRounds.length]);
 
   const divergentClients = useMemo(() => {
     const averageLoss = metrics.reduce((sum, metric) => sum + (numeric(metric.loss) || 0), 0) / (metrics.length || 1);

@@ -31,11 +31,13 @@ import {
   TableRow,
   Tooltip,
   Typography,
+  useTheme,
 } from '@mui/material';
 import TuneIcon from '@mui/icons-material/Tune';
 import BarChartIcon from '@mui/icons-material/BarChart';
 import InfoIcon from '@mui/icons-material/Info';
 import { Bar } from 'react-chartjs-2';
+import { buildBaseChartOptions, mergeChartOptions, seriesColor, withAlpha } from '../utils/chartTheme';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -105,6 +107,7 @@ const AnomalyScoreAnalysis = ({
   defaultThreshold = 0.5,
   perClientMetrics = [],
 }) => {
+  const theme = useTheme();
   const [threshold, setThreshold] = useState(defaultThreshold);
 
   // Calculate min and max scores for slider range
@@ -162,63 +165,49 @@ const AnomalyScoreAnalysis = ({
         {
           label: 'Normal',
           data: normalCounts,
-          backgroundColor: 'rgba(25, 118, 210, 0.6)',
-          borderColor: '#1976d2',
+          backgroundColor: withAlpha(seriesColor(theme, 0), 0.6),
+          borderColor: seriesColor(theme, 0),
           borderWidth: 1,
         },
         {
           label: 'Anomaly',
           data: anomalyCounts,
-          backgroundColor: 'rgba(211, 47, 47, 0.6)',
-          borderColor: '#d32f2f',
+          backgroundColor: withAlpha(theme.palette.error.main, 0.6),
+          borderColor: theme.palette.error.main,
           borderWidth: 1,
         },
       ],
     };
-  }, [anomalyScores, scoreRange]);
+  }, [anomalyScores, scoreRange, theme]);
 
   // Chart options for histogram
-  const histogramOptions = {
-    responsive: true,
-    maintainAspectRatio: false,
-    plugins: {
-      legend: {
-        position: 'bottom',
-        labels: {
-          usePointStyle: true,
-          padding: 15,
-        },
-      },
-      tooltip: {
-        enabled: true,
-        callbacks: {
-          title: (context) => `Score: ${context[0].label}`,
-          label: (context) => {
-            const label = context.dataset.label || '';
-            const value = context.parsed.y;
-            return `${label}: ${value} samples`;
+  const histogramOptions = useMemo(() => mergeChartOptions(
+    buildBaseChartOptions(theme, { xTitle: 'Anomaly Score', yTitle: 'Frequency' }),
+    {
+      plugins: {
+        tooltip: {
+          enabled: true,
+          callbacks: {
+            title: (context) => `Score: ${context[0].label}`,
+            label: (context) => {
+              const label = context.dataset.label || '';
+              const value = context.parsed.y;
+              return `${label}: ${value} samples`;
+            },
           },
         },
       },
-    },
-    scales: {
-      x: {
-        title: {
-          display: true,
-          text: 'Anomaly Score',
+      scales: {
+        x: {
+          stacked: true,
         },
-        stacked: true,
-      },
-      y: {
-        title: {
-          display: true,
-          text: 'Frequency',
+        y: {
+          stacked: true,
+          beginAtZero: true,
         },
-        stacked: true,
-        beginAtZero: true,
       },
-    },
-  };
+    }
+  ), [theme]);
 
   // Handle threshold change
   const handleThresholdChange = (event, newValue) => {
@@ -307,7 +296,7 @@ const AnomalyScoreAnalysis = ({
                     <Typography color="text.secondary" variant="body2">
                       Precision
                     </Typography>
-                    <Typography variant="h4" sx={{ fontWeight: 600, color: '#1976d2' }}>
+                    <Typography variant="h4" sx={{ fontWeight: 600, color: 'primary.main' }}>
                       {`${(currentMetrics.precision * 100).toFixed(2)}%`}
                     </Typography>
                     <Typography variant="caption" color="text.secondary">
@@ -323,7 +312,7 @@ const AnomalyScoreAnalysis = ({
                     <Typography color="text.secondary" variant="body2">
                       Recall
                     </Typography>
-                    <Typography variant="h4" sx={{ fontWeight: 600, color: '#2e7d32' }}>
+                    <Typography variant="h4" sx={{ fontWeight: 600, color: 'success.main' }}>
                       {`${(currentMetrics.recall * 100).toFixed(2)}%`}
                     </Typography>
                     <Typography variant="caption" color="text.secondary">
@@ -339,7 +328,7 @@ const AnomalyScoreAnalysis = ({
                     <Typography color="text.secondary" variant="body2">
                       F1 Score
                     </Typography>
-                    <Typography variant="h4" sx={{ fontWeight: 600, color: '#ed6c02' }}>
+                    <Typography variant="h4" sx={{ fontWeight: 600, color: 'warning.main' }}>
                       {currentMetrics.f1.toFixed(4)}
                     </Typography>
                     <Typography variant="caption" color="text.secondary">
@@ -355,7 +344,7 @@ const AnomalyScoreAnalysis = ({
                     <Typography color="text.secondary" variant="body2">
                       Accuracy
                     </Typography>
-                    <Typography variant="h4" sx={{ fontWeight: 600, color: '#9c27b0' }}>
+                    <Typography variant="h4" sx={{ fontWeight: 600, color: 'secondary.main' }}>
                       {`${(currentMetrics.accuracy * 100).toFixed(2)}%`}
                     </Typography>
                     <Typography variant="caption" color="text.secondary">

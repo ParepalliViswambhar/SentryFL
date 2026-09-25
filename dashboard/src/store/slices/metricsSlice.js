@@ -115,8 +115,13 @@ export const fetchCommunicationMetrics = createAsyncThunk(
 );
 
 /**
- * Async thunk to fetch all metrics for an experiment
- * 
+ * Async thunk to fetch all metrics for an experiment.
+ *
+ * Deliberately NOT cached: a running experiment's metrics change every round,
+ * so a stale cache would freeze the charts. The REST payload is the paginated
+ * envelope `{ metrics: [...], total, limit, offset }` where each entry nests
+ * per-category records; the fulfilled reducer normalizes it into flat arrays.
+ *
  * @async
  * @function fetchAllMetrics
  * @param {string} experimentId - Experiment ID
@@ -127,17 +132,91 @@ export const fetchAllMetrics = createAsyncThunk(
   'metrics/fetchAll',
   async (experimentId, { rejectWithValue }) => {
     try {
-      const cacheKey = `metrics_all_${experimentId}`;
-      const cached = getCacheItem(cacheKey);
-      if (cached !== null) return { experimentId, data: cached };
       const response = await apiClient.get(`/experiments/${experimentId}/metrics`);
-      setCacheItem(cacheKey, response.data);
       return { experimentId, data: response.data };
     } catch (error) {
       return rejectWithValue(error.response?.data || error.message);
     }
   }
 );
+
+/**
+ * Normalize a metrics response into flat, chart-ready arrays keyed by round.
+ * Tolerates three shapes: the paginated envelope (`{ metrics: [...] }`), a bare
+ * array of round entries, or an already-split `{ training, privacy,
+ * communication }` object (used by tests and defensive callers).
+ *
+ * @param {*} data - Raw metrics payload
+ * @returns {{training: Object[], privacy: Object[], communication: Object[]}}
+ */
+export const normalizeMetricsEnvelope = (data) => {
+  if (
+    data &&
+    !Array.isArray(data) &&
+    (Array.isArray(data.training) || Array.isArray(data.privacy) || Array.isArray(data.communication))
+  ) {
+    return {
+      training: data.training || [],
+      privacy: data.privacy || [],
+      communication: data.communication || [],
+    };
+  }
+
+  const entries = Array.isArray(data) ? data : Array.isArray(data?.metrics) ? data.metrics : [];
+  const pickLast = (arr) => (Array.isArray(arr) && arr.length ? arr[arr.length - 1] : null);
+  const result = { training: [], privacy: [], communication: [] };
+
+  entries.forEach((entry) => {
+    const round = entry.round_number ?? entry.round;
+    const timestamp = entry.timestamp;
+    const nested = entry.metrics || {};
+    const training = pickLast(nested.training);
+    result.training.push({
+      ...(training || {}),
+      round,
+      loss: entry.global_loss ?? training?.loss,
+      accuracy: entry.global_accuracy ?? training?.accuracy,
+      timestamp,
+    });
+    const privacy = pickLast(nested.privacy);
+    if (privacy) result.privacy.push({ ...privacy, round, timestamp });
+    const communication = pickLast(nested.communication);
+    if (communication) result.communication.push({ ...communication, round, timestamp });
+  });
+
+  const byRound = (a, b) => (a.round ?? 0) - (b.round ?? 0);
+  result.training.sort(byRound);
+  result.privacy.sort(byRound);
+  result.communication.sort(byRound);
+  return result;
+};
+
+/**
+ * Coerce a single-category metrics response into a flat array. The Node API
+ * wraps records in an envelope (`{ experiment_id, metric_category, metrics }`)
+ * while tests and the live socket path deal in bare arrays; tolerate both so a
+ * fetch response can never leave an object where the reducers expect an array.
+ */
+const toMetricArray = (data) => {
+  if (Array.isArray(data)) return data;
+  if (Array.isArray(data?.metrics)) return data.metrics;
+  return [];
+};
+
+/**
+ * Merge freshly-fetched historical metrics with whatever the live socket has
+ * already streamed in. Existing (live) rounds win on conflict so a late REST
+ * response can never wipe a round the socket already delivered. Guards against
+ * a non-array `existing` (e.g. a stale object shape) so the merge never throws.
+ */
+const mergeByRound = (existing = [], incoming = []) => {
+  const base = Array.isArray(existing) ? existing : [];
+  const map = new Map(base.map((metric) => [metric.round, metric]));
+  incoming.forEach((metric) => {
+    if (!map.has(metric.round)) map.set(metric.round, metric);
+  });
+  return Array.from(map.values()).sort((a, b) => (a.round ?? 0) - (b.round ?? 0));
+};
 
 /**
  * Initial state for metrics slice
@@ -326,7 +405,7 @@ const metricsSlice = createSlice({
       .addCase(fetchTrainingMetrics.fulfilled, (state, action) => {
         state.status = 'succeeded';
         const { experimentId, data } = action.payload;
-        state.training[experimentId] = data;
+        state.training[experimentId] = toMetricArray(data);
       })
       .addCase(fetchTrainingMetrics.rejected, (state, action) => {
         state.status = 'failed';
@@ -341,7 +420,7 @@ const metricsSlice = createSlice({
       .addCase(fetchPrivacyMetrics.fulfilled, (state, action) => {
         state.status = 'succeeded';
         const { experimentId, data } = action.payload;
-        state.privacy[experimentId] = data;
+        state.privacy[experimentId] = toMetricArray(data);
       })
       .addCase(fetchPrivacyMetrics.rejected, (state, action) => {
         state.status = 'failed';
@@ -356,7 +435,7 @@ const metricsSlice = createSlice({
       .addCase(fetchCommunicationMetrics.fulfilled, (state, action) => {
         state.status = 'succeeded';
         const { experimentId, data } = action.payload;
-        state.communication[experimentId] = data;
+        state.communication[experimentId] = toMetricArray(data);
       })
       .addCase(fetchCommunicationMetrics.rejected, (state, action) => {
         state.status = 'failed';
@@ -371,9 +450,14 @@ const metricsSlice = createSlice({
       .addCase(fetchAllMetrics.fulfilled, (state, action) => {
         state.status = 'succeeded';
         const { experimentId, data } = action.payload;
-        if (data.training) state.training[experimentId] = data.training;
-        if (data.privacy) state.privacy[experimentId] = data.privacy;
-        if (data.communication) state.communication[experimentId] = data.communication;
+        const normalized = normalizeMetricsEnvelope(data);
+        // Merge under any live socket data rather than replacing it.
+        state.training[experimentId] = mergeByRound(state.training[experimentId], normalized.training);
+        state.privacy[experimentId] = mergeByRound(state.privacy[experimentId], normalized.privacy);
+        state.communication[experimentId] = mergeByRound(
+          state.communication[experimentId],
+          normalized.communication
+        );
       })
       .addCase(fetchAllMetrics.rejected, (state, action) => {
         state.status = 'failed';
@@ -393,26 +477,29 @@ export const {
 } = metricsSlice.actions;
 
 // Selectors
+// Null-safe against partially-mounted stores: a consumer (e.g. an ActiveRunCard
+// rendered in isolation) may hold a store without the metrics slice fully
+// populated, so never assume the per-category maps exist.
 export const selectTrainingMetrics = (experimentId) => (state) =>
-  state.metrics.training[experimentId] || [];
+  state.metrics?.training?.[experimentId] || [];
 
 export const selectPrivacyMetrics = (experimentId) => (state) =>
-  state.metrics.privacy[experimentId] || [];
+  state.metrics?.privacy?.[experimentId] || [];
 
 export const selectCommunicationMetrics = (experimentId) => (state) =>
-  state.metrics.communication[experimentId] || [];
+  state.metrics?.communication?.[experimentId] || [];
 
 export const selectLatestTrainingMetric = (experimentId) => (state) => {
-  const metrics = state.metrics.training[experimentId];
+  const metrics = state.metrics?.training?.[experimentId];
   return metrics && metrics.length > 0 ? metrics[metrics.length - 1] : null;
 };
 
 export const selectLatestPrivacyMetric = (experimentId) => (state) => {
-  const metrics = state.metrics.privacy[experimentId];
+  const metrics = state.metrics?.privacy?.[experimentId];
   return metrics && metrics.length > 0 ? metrics[metrics.length - 1] : null;
 };
 
-export const selectMetricsStatus = (state) => state.metrics.status;
-export const selectMetricsError = (state) => state.metrics.error;
+export const selectMetricsStatus = (state) => state.metrics?.status;
+export const selectMetricsError = (state) => state.metrics?.error;
 
 export default metricsSlice.reducer;

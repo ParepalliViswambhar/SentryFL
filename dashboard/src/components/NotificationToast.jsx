@@ -53,23 +53,25 @@ export default function NotificationToast() {
 
   return (
     <Snackbar
-      open={true}
+      open
       autoHideDuration={currentNotification.autoDismiss ? AUTO_DISMISS_DURATION : null}
       onClose={handleClose}
       anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
-      sx={{ marginTop: '64px' }} // Below app bar
+      sx={{ mt: 8 }} // clear the fixed app bar
     >
       <Alert
         onClose={handleClose}
         severity={currentNotification.type}
         variant="filled"
-        sx={{ width: '100%', maxWidth: '500px' }}
+        sx={{ width: '100%', maxWidth: 460, boxShadow: 6 }}
       >
-        {currentNotification.message}
-        {currentNotification.details && (
-          <AlertTitle sx={{ mt: 1, fontSize: '0.875rem' }}>
+        {currentNotification.details ? (
+          <>
+            <AlertTitle sx={{ fontWeight: 700 }}>{currentNotification.message}</AlertTitle>
             {currentNotification.details}
-          </AlertTitle>
+          </>
+        ) : (
+          currentNotification.message
         )}
       </Alert>
     </Snackbar>

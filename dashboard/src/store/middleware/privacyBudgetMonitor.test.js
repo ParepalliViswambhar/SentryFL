@@ -17,7 +17,7 @@ import privacyBudgetMonitor, {
 } from './privacyBudgetMonitor';
 import notificationsReducer from '../slices/notificationsSlice';
 import metricsReducer, { addPrivacyMetric } from '../slices/metricsSlice';
-import experimentsReducer from '../slices/experimentsSlice';
+import experimentsReducer, { fetchExperiments } from '../slices/experimentsSlice';
 
 describe('Privacy Budget Monitor Middleware', () => {
   let store;
@@ -38,9 +38,8 @@ describe('Privacy Budget Monitor Middleware', () => {
     });
 
     // Add a mock experiment to the store
-    store.dispatch({
-      type: 'experiments/fetchExperiments/fulfilled',
-      payload: [
+    store.dispatch(
+      fetchExperiments.fulfilled([
         {
           id: 'exp-001',
           name: 'Test Experiment',
@@ -52,8 +51,8 @@ describe('Privacy Budget Monitor Middleware', () => {
             },
           },
         },
-      ],
-    });
+      ])
+    );
   });
 
   /**
@@ -210,9 +209,8 @@ describe('Privacy Budget Monitor Middleware', () => {
    */
   it('should track warnings independently for different experiments', () => {
     // Add second experiment
-    store.dispatch({
-      type: 'experiments/fetchExperiments/fulfilled',
-      payload: [
+    store.dispatch(
+      fetchExperiments.fulfilled([
         {
           id: 'exp-001',
           name: 'Experiment 1',
@@ -225,8 +223,8 @@ describe('Privacy Budget Monitor Middleware', () => {
           status: 'running',
           config: { privacy: { epsilon: 5.0 } },
         },
-      ],
-    });
+      ])
+    );
 
     // Trigger warning for exp-001
     store.dispatch(
@@ -258,17 +256,16 @@ describe('Privacy Budget Monitor Middleware', () => {
    */
   it('should use default max epsilon when experiment config is missing', () => {
     // Add experiment without privacy config
-    store.dispatch({
-      type: 'experiments/fetchExperiments/fulfilled',
-      payload: [
+    store.dispatch(
+      fetchExperiments.fulfilled([
         {
           id: 'exp-003',
           name: 'No Config Experiment',
           status: 'running',
           config: {},
         },
-      ],
-    });
+      ])
+    );
 
     // Dispatch metric at 70% of default 10.0
     store.dispatch(

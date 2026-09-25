@@ -5,7 +5,7 @@
  */
 
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link as RouterLink } from 'react-router-dom';
 import { useDispatch } from 'react-redux';
 import {
   Box,
@@ -15,8 +15,13 @@ import {
   Button,
   Container,
   Alert,
+  Link,
+  IconButton,
+  InputAdornment,
 } from '@mui/material';
-import { LockOutlined as LockIcon } from '@mui/icons-material';
+import LockIcon from '@mui/icons-material/LockOutlined';
+import VisibilityIcon from '@mui/icons-material/Visibility';
+import VisibilityOffIcon from '@mui/icons-material/VisibilityOff';
 import { login } from '../store/slices/authSlice';
 
 const Login = () => {
@@ -29,6 +34,7 @@ const Login = () => {
   const [error, setError] = useState('');
   const [fieldErrors, setFieldErrors] = useState({});
   const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   
   const validateForm = () => {
     const errors = {};
@@ -81,7 +87,7 @@ const Login = () => {
       await dispatch(login(credentials)).unwrap();
       navigate('/', { replace: true });
     } catch (err) {
-      setError(typeof err === 'string' ? err : err.message || 'Login failed. Please try again.');
+      setError(typeof err === 'string' ? err : err?.message || 'Login failed. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -147,7 +153,7 @@ const Login = () => {
               fullWidth
               label="Password"
               name="password"
-              type="password"
+              type={showPassword ? 'text' : 'password'}
               value={credentials.password}
               onChange={handleChange}
               margin="normal"
@@ -155,6 +161,22 @@ const Login = () => {
               disabled={loading}
               error={Boolean(fieldErrors.password)}
               helperText={fieldErrors.password}
+              slotProps={{
+                input: {
+                  endAdornment: (
+                    <InputAdornment position="end">
+                      <IconButton
+                        aria-label={showPassword ? 'Hide password' : 'Show password'}
+                        onClick={() => setShowPassword((show) => !show)}
+                        edge="end"
+                        disabled={loading}
+                      >
+                        {showPassword ? <VisibilityOffIcon /> : <VisibilityIcon />}
+                      </IconButton>
+                    </InputAdornment>
+                  ),
+                },
+              }}
             />
             
             <Button
@@ -168,6 +190,13 @@ const Login = () => {
               {loading ? 'Signing in...' : 'Sign In'}
             </Button>
           </form>
+
+          <Typography variant="body2" align="center" sx={{ mt: 3 }}>
+            Don&apos;t have an account?{' '}
+            <Link component={RouterLink} to="/register">
+              Create one
+            </Link>
+          </Typography>
         </Paper>
       </Box>
     </Container>

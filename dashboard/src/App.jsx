@@ -1,24 +1,21 @@
 /**
  * App Component
- * 
- * Root application component with routing configuration
+ *
+ * Root application component: providers (Redux, colour-mode/theme) and routing.
  * Routes:
  * - / : Dashboard (protected)
- * - /experiments/new : Create new experiment (protected)
- * - /experiments : List all experiments (protected)
- * - /experiments/:id : Experiment detail view (protected)
- * - /comparison : Compare experiments (protected)
- * - /settings : Application settings (protected)
- * - /login : Login page (public)
+ * - /experiments, /experiments/new, /experiments/:id (protected)
+ * - /comparison, /settings (protected)
+ * - /login, /register (public)
  */
 
 import { useEffect } from 'react';
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
-import { ThemeProvider, createTheme, CssBaseline } from '@mui/material';
+import { Routes, Route } from 'react-router-dom';
 import { Provider, useDispatch } from 'react-redux';
 import store from './store';
 import { verifyToken } from './store/slices/authSlice';
 import { setStoreReference } from './api/client';
+import { ColorModeProvider } from './theme/ColorModeContext';
 
 // Layout components
 import Layout from './components/Layout';
@@ -35,40 +32,25 @@ import ExperimentDetail from './pages/ExperimentDetail';
 import Comparison from './pages/Comparison';
 import Settings from './pages/Settings';
 import Login from './pages/Login';
+import Register from './pages/Register';
+import NotFound from './pages/NotFound';
 
 // Set store reference for API client
 setStoreReference(store);
-
-// Create Material-UI theme
-const theme = createTheme({
-  palette: {
-    mode: 'light',
-    primary: {
-      main: '#1976d2',
-    },
-    secondary: {
-      main: '#dc004e',
-    },
-    background: {
-      default: '#f5f5f5',
-    },
-  },
-});
 
 function App() {
   return (
     <Provider store={store}>
       <AuthBootstrap>
-        <ErrorBoundary>
-          <ThemeProvider theme={theme}>
-            <CssBaseline />
-            <NotificationToast />
+        <ColorModeProvider>
+          <ErrorBoundary>
             <OfflineIndicator />
-            <BrowserRouter>
+            <NotificationToast />
             <Routes>
-              {/* Public route - Login */}
+              {/* Public routes */}
               <Route path="/login" element={<Login />} />
-              
+              <Route path="/register" element={<Register />} />
+
               {/* Protected routes - Main application */}
               <Route
                 path="/"
@@ -78,26 +60,22 @@ function App() {
                   </PrivateRoute>
                 }
               >
-                {/* Dashboard - Root path */}
                 <Route index element={<Dashboard />} />
-                
-                {/* Experiment routes */}
                 <Route path="experiments">
                   <Route index element={<ExperimentList />} />
                   <Route path="new" element={<NewExperiment />} />
                   <Route path=":id" element={<ExperimentDetail />} />
                 </Route>
-                
-                {/* Comparison page */}
                 <Route path="comparison" element={<Comparison />} />
-                
-                {/* Settings page */}
                 <Route path="settings" element={<Settings />} />
+                {/* Authenticated catch-all: a themed 404 that keeps the app
+                    shell. Unauthenticated unknown paths fall through to
+                    PrivateRoute, which redirects them to /login. */}
+                <Route path="*" element={<NotFound />} />
               </Route>
             </Routes>
-            </BrowserRouter>
-          </ThemeProvider>
-        </ErrorBoundary>
+          </ErrorBoundary>
+        </ColorModeProvider>
       </AuthBootstrap>
     </Provider>
   );

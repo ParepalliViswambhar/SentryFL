@@ -120,6 +120,12 @@ class WebSocketServer {
       timestamp: new Date().toISOString(),
       data: {
         round: data.round,
+        // Forward the round target the Python runner sends with every round
+        // (runner.py _push_metrics). Without it the round-complete event had no
+        // denominator of its own, so a progress bar driven purely off these
+        // events sat at 0% until a status event or REST poll filled in the
+        // total — making an actively-training run look stalled.
+        totalRounds: data.totalRounds,
         loss: data.loss,
         accuracy: data.accuracy,
         gradientNorm: data.gradientNorm,
@@ -171,12 +177,48 @@ class WebSocketServer {
         status: data.status, // 'running', 'paused', 'completed', 'failed'
         previousStatus: data.previousStatus,
         message: data.message,
+        // Forward the round counters the Python runner sends. These used to be
+        // dropped here, which left the dashboard progress bar stuck at 0% until
+        // a REST poll happened to fill it in — so a running experiment looked
+        // like nothing was happening.
+        currentRound: data.currentRound,
+        totalRounds: data.totalRounds,
+        progress: data.progress,
       },
     };
 
     this.io.to(room).emit('experiment_status_change', event);
     this.bufferEvent(experimentId, event);
     console.info(`Broadcast experiment_status_change to ${room}:`, event.data);
+  }
+
+  /**
+   * Broadcast a liveness heartbeat.
+   *
+   * Unlike the other events this is NOT buffered: heartbeats fire on a short
+   * interval purely to prove a run is alive, and buffering them would evict the
+   * meaningful round/status history a reconnecting client needs to replay.
+   *
+   * @param {string} experimentId - Experiment identifier
+   * @param {object} data - Liveness snapshot ({ status, currentRound, totalRounds, phase, message, elapsedSeconds })
+   */
+  broadcastHeartbeat(experimentId, data) {
+    const room = `experiment:${experimentId}`;
+    const event = {
+      type: 'heartbeat',
+      experimentId,
+      timestamp: new Date().toISOString(),
+      data: {
+        status: data.status,
+        currentRound: data.currentRound,
+        totalRounds: data.totalRounds,
+        phase: data.phase,
+        message: data.message,
+        elapsedSeconds: data.elapsedSeconds,
+      },
+    };
+
+    this.io.to(room).emit('heartbeat', event);
   }
 
   /**

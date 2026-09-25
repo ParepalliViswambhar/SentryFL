@@ -18,7 +18,8 @@ describe('experiment control pages', () => {
     const onStop = vi.fn();
     render(<MemoryRouter><ExperimentTable experiments={[{ id: 'exp-1', name: 'SMD run', status: 'running', progress: 40, currentRound: 4, totalRounds: 10 }]} onStop={onStop} onPause={vi.fn()} onResume={vi.fn()} /></MemoryRouter>);
     expect(screen.getByText('SMD run')).toBeInTheDocument();
-    expect(screen.getByText('40% (4/10)')).toBeInTheDocument();
+    expect(screen.getByText('Round 4 / 10')).toBeInTheDocument();
+    expect(screen.getByText('40%')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /stop smd run/i }));
     expect(onStop).toHaveBeenCalledWith(expect.objectContaining({ id: 'exp-1' }));
   });
@@ -39,8 +40,10 @@ describe('experiment control pages', () => {
   });
 
   it('shows fetched experiments on the dashboard', () => {
-    renderWithState(<Dashboard />, { list: [{ id: 'exp-2', name: 'Running run', status: 'running', progress: 75 }], current: null, status: 'succeeded', error: null });
-    expect(screen.getByText('Running run')).toBeInTheDocument();
-    expect(screen.getByText('75%')).toBeInTheDocument();
+    renderWithState(<Dashboard />, { list: [{ id: 'exp-2', name: 'Running run', status: 'running', progress: 75, currentRound: 15, totalRounds: 20 }], current: null, status: 'succeeded', error: null });
+    // exp-2 surfaces both as a live "active run" card and in the recent table,
+    // so each label renders more than once — assert presence, not uniqueness.
+    expect(screen.getAllByText('Running run').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('75%').length).toBeGreaterThan(0);
   });
 });

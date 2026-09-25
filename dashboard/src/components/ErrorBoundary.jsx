@@ -7,7 +7,7 @@
 
 import { Component } from 'react';
 import { Box, Container, Typography, Button, Paper } from '@mui/material';
-import { Error as ErrorIcon } from '@mui/icons-material';
+import ErrorIcon from '@mui/icons-material/Error';
 
 class ErrorBoundary extends Component {
   constructor(props) {

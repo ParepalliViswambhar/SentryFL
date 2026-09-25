@@ -5,6 +5,7 @@
  */
 
 import { Box, CircularProgress, Typography } from '@mui/material';
+import { alpha } from '@mui/material/styles';
 
 /**
  * LoadingSpinner component
@@ -60,7 +61,7 @@ const LoadingSpinner = ({
           display: 'flex',
           justifyContent: 'center',
           alignItems: 'center',
-          backgroundColor: 'rgba(255, 255, 255, 0.8)',
+          backgroundColor: (theme) => alpha(theme.palette.background.default, 0.8),
           zIndex: 9999,
         }}
       >

@@ -28,6 +28,7 @@ import {
   Stack,
   Tooltip,
   Typography,
+  useTheme,
 } from '@mui/material';
 import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
@@ -45,36 +46,38 @@ import {
   Filler,
 } from 'chart.js';
 import ExportButton from './ExportButton';
+import { buildBaseChartOptions, mergeChartOptions, withAlpha } from '../utils/chartTheme';
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, ChartTooltip, Legend, Filler);
 
 /**
  * Get color based on privacy budget utilization percentage
- * 
+ *
  * @param {number} percentage - Budget utilization percentage (0-100)
+ * @param {Object} theme - MUI theme providing semantic palette tokens
  * @returns {Object} Object with color, backgroundColor, and severity
  */
-const getColorByUtilization = (percentage) => {
+const getColorByUtilization = (percentage, theme) => {
   if (percentage < 70) {
     return {
-      color: '#2e7d32',
-      backgroundColor: 'rgba(46, 125, 50, 0.12)',
+      color: theme.palette.success.main,
+      backgroundColor: withAlpha(theme.palette.success.main, 0.12),
       severity: 'success',
       icon: <CheckCircleIcon />,
       label: 'Strong privacy',
     };
   } else if (percentage < 90) {
     return {
-      color: '#ed6c02',
-      backgroundColor: 'rgba(237, 108, 2, 0.12)',
+      color: theme.palette.warning.main,
+      backgroundColor: withAlpha(theme.palette.warning.main, 0.12),
       severity: 'warning',
       icon: <WarningAmberIcon />,
       label: 'Moderate privacy',
     };
   } else {
     return {
-      color: '#d32f2f',
-      backgroundColor: 'rgba(211, 47, 47, 0.12)',
+      color: theme.palette.error.main,
+      backgroundColor: withAlpha(theme.palette.error.main, 0.12),
       severity: 'error',
       icon: <ErrorIcon />,
       label: 'Weak privacy',
@@ -98,6 +101,8 @@ const PrivacyBudgetGauge = ({
   maxDelta = 1e-5,
   accountingMethod = 'RDP',
 }) => {
+  const theme = useTheme();
+
   // Get latest privacy metric
   const latestMetric = useMemo(() => {
     return privacyMetrics.length > 0 ? privacyMetrics[privacyMetrics.length - 1] : null;
@@ -113,7 +118,7 @@ const PrivacyBudgetGauge = ({
   const utilizationPercentage = maxEpsilon > 0 ? (currentEpsilon / maxEpsilon) * 100 : 0;
 
   // Get color theme based on utilization
-  const colorTheme = getColorByUtilization(utilizationPercentage);
+  const colorTheme = getColorByUtilization(utilizationPercentage, theme);
 
   // Chart ref for export
   const chartRef = useRef(null);
@@ -140,7 +145,7 @@ const PrivacyBudgetGauge = ({
         {
           label: 'Privacy budget threshold',
           data: thresholdLine,
-          borderColor: '#d32f2f',
+          borderColor: theme.palette.error.main,
           backgroundColor: 'transparent',
           borderDash: [5, 5],
           borderWidth: 2,
@@ -149,52 +154,35 @@ const PrivacyBudgetGauge = ({
         },
       ],
     };
-  }, [privacyMetrics, maxEpsilon, colorTheme]);
+  }, [privacyMetrics, maxEpsilon, colorTheme, theme]);
 
   // Chart options
-  const chartOptions = {
-    responsive: true,
-    maintainAspectRatio: false,
-    animation: { duration: 300 },
-    interaction: { mode: 'index', intersect: false },
-    plugins: {
-      legend: {
-        position: 'bottom',
-        labels: {
-          usePointStyle: true,
-          padding: 15,
-        },
-      },
-      tooltip: {
-        enabled: true,
-        callbacks: {
-          title: (context) => `Round ${context[0].label}`,
-          label: (context) => {
-            const label = context.dataset.label || '';
-            const value = typeof context.parsed.y === 'number' ? context.parsed.y.toFixed(4) : '';
-            return `${label}: ε = ${value}`;
+  const chartOptions = useMemo(() => mergeChartOptions(
+    buildBaseChartOptions(theme, { xTitle: 'Training Round', yTitle: 'Epsilon (ε)' }),
+    {
+      animation: { duration: 300 },
+      plugins: {
+        tooltip: {
+          enabled: true,
+          callbacks: {
+            title: (context) => `Round ${context[0].label}`,
+            label: (context) => {
+              const label = context.dataset.label || '';
+              const value = typeof context.parsed.y === 'number' ? context.parsed.y.toFixed(4) : '';
+              return `${label}: ε = ${value}`;
+            },
+            footer: () => `Accounting: ${accountingMethod}`,
           },
-          footer: () => `Accounting: ${accountingMethod}`,
         },
       },
-    },
-    scales: {
-      x: {
-        title: {
-          display: true,
-          text: 'Training Round',
+      scales: {
+        y: {
+          beginAtZero: true,
+          suggestedMax: maxEpsilon * 1.1,
         },
       },
-      y: {
-        title: {
-          display: true,
-          text: 'Epsilon (ε)',
-        },
-        beginAtZero: true,
-        suggestedMax: maxEpsilon * 1.1,
-      },
-    },
-  };
+    }
+  ), [theme, accountingMethod, maxEpsilon]);
 
   // Show warning if budget is near exhaustion
   const showWarning = utilizationPercentage > 90;
@@ -319,7 +307,7 @@ const PrivacyBudgetGauge = ({
             sx={{
               height: 10,
               borderRadius: 5,
-              backgroundColor: 'rgba(0, 0, 0, 0.1)',
+              backgroundColor: theme.palette.action.hover,
               '& .MuiLinearProgress-bar': {
                 backgroundColor: colorTheme.color,
                 borderRadius: 5,

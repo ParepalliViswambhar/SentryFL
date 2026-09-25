@@ -26,11 +26,13 @@ import {
   ToggleButtonGroup,
   Typography,
   Alert,
+  useTheme,
 } from '@mui/material';
 import { Line } from 'react-chartjs-2';
 import ExportButton from './ExportButton';
 import { exportMetricsAsCSV, exportAsJSON } from '../utils/exportUtils';
 import { downsampleChartData, needsDownsampling } from '../utils/dataUtils';
+import { buildBaseChartOptions, mergeChartOptions, seriesColor, withAlpha } from '../utils/chartTheme';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -53,14 +55,6 @@ ChartJS.register(
   Legend,
   Filler
 );
-
-const COLORS = {
-  upload: '#0b7285',
-  download: '#e67700',
-  overhead: '#5f3dc4',
-  total: '#2b8a3e',
-  cumulative: '#c2255c',
-};
 
 /**
  * Format bytes to human-readable format
@@ -90,6 +84,7 @@ const formatBytes = (bytes) => {
  * @returns {JSX.Element} Communication cost chart component
  */
 const CommunicationCostChart = ({ metrics = [], title = 'Communication Costs' }) => {
+  const theme = useTheme();
   const [scaleType, setScaleType] = useState('linear'); // 'linear' or 'logarithmic'
   const [chartView, setChartView] = useState('rounds'); // 'rounds' or 'breakdown' or 'cumulative'
   const chartRef = useRef(null);
@@ -122,14 +117,15 @@ const CommunicationCostChart = ({ metrics = [], title = 'Communication Costs' })
 
   // Chart data for bytes vs training round
   const bytesVsRoundData = useMemo(() => {
+    const stroke = seriesColor(theme, 0);
     const rawData = {
       labels: processedMetrics.map((m) => m.round),
       datasets: [
         {
           label: 'Total Bytes per Round',
           data: processedMetrics.map((m) => m.total),
-          borderColor: COLORS.total,
-          backgroundColor: 'rgba(43, 138, 62, 0.1)',
+          borderColor: stroke,
+          backgroundColor: withAlpha(stroke, 0.12),
           fill: true,
           tension: 0.3,
           pointRadius: 3,
@@ -139,18 +135,21 @@ const CommunicationCostChart = ({ metrics = [], title = 'Communication Costs' })
     };
     // Downsample if dataset is too large (Requirement 37.6)
     return needsDownsampling(rawData, 1000) ? downsampleChartData(rawData, 1000) : rawData;
-  }, [processedMetrics]);
+  }, [theme, processedMetrics]);
 
   // Chart data for communication breakdown
   const communicationBreakdownData = useMemo(() => {
+    const uploadStroke = seriesColor(theme, 1);
+    const downloadStroke = seriesColor(theme, 2);
+    const overheadStroke = seriesColor(theme, 3);
     return {
       labels: processedMetrics.map((m) => m.round),
       datasets: [
         {
           label: 'Upload (Client → Server)',
           data: processedMetrics.map((m) => m.upload),
-          borderColor: COLORS.upload,
-          backgroundColor: 'rgba(11, 114, 133, 0.1)',
+          borderColor: uploadStroke,
+          backgroundColor: withAlpha(uploadStroke, 0.12),
           fill: true,
           tension: 0.3,
           pointRadius: 2,
@@ -158,8 +157,8 @@ const CommunicationCostChart = ({ metrics = [], title = 'Communication Costs' })
         {
           label: 'Download (Server → Client)',
           data: processedMetrics.map((m) => m.download),
-          borderColor: COLORS.download,
-          backgroundColor: 'rgba(230, 119, 0, 0.1)',
+          borderColor: downloadStroke,
+          backgroundColor: withAlpha(downloadStroke, 0.12),
           fill: true,
           tension: 0.3,
           pointRadius: 2,
@@ -167,26 +166,27 @@ const CommunicationCostChart = ({ metrics = [], title = 'Communication Costs' })
         {
           label: 'Overhead',
           data: processedMetrics.map((m) => m.overhead),
-          borderColor: COLORS.overhead,
-          backgroundColor: 'rgba(95, 61, 196, 0.1)',
+          borderColor: overheadStroke,
+          backgroundColor: withAlpha(overheadStroke, 0.12),
           fill: true,
           tension: 0.3,
           pointRadius: 2,
         },
       ],
     };
-  }, [processedMetrics]);
+  }, [theme, processedMetrics]);
 
   // Chart data for cumulative communication cost
   const cumulativeCostData = useMemo(() => {
+    const stroke = seriesColor(theme, 4);
     return {
       labels: processedMetrics.map((m) => m.round),
       datasets: [
         {
           label: 'Cumulative Communication Cost',
           data: processedMetrics.map((m) => m.cumulative),
-          borderColor: COLORS.cumulative,
-          backgroundColor: 'rgba(194, 37, 92, 0.1)',
+          borderColor: stroke,
+          backgroundColor: withAlpha(stroke, 0.12),
           fill: true,
           tension: 0.3,
           pointRadius: 3,
@@ -194,55 +194,7 @@ const CommunicationCostChart = ({ metrics = [], title = 'Communication Costs' })
         },
       ],
     };
-  }, [processedMetrics]);
-
-  // Base chart options
-  const getChartOptions = (yAxisLabel) => ({
-    responsive: true,
-    maintainAspectRatio: false,
-    animation: { duration: 180 },
-    interaction: { mode: 'index', intersect: false },
-    plugins: {
-      legend: {
-        position: 'bottom',
-        labels: {
-          usePointStyle: true,
-          padding: 15,
-        },
-      },
-      tooltip: {
-        enabled: true,
-        callbacks: {
-          label: (context) => {
-            const label = context.dataset.label || '';
-            const value = context.parsed.y;
-            return `${label}: ${formatBytes(value)}`;
-          },
-        },
-      },
-    },
-    scales: {
-      x: {
-        title: {
-          display: true,
-          text: 'Training Round',
-        },
-      },
-      y: {
-        type: scaleType,
-        title: {
-          display: true,
-          text: yAxisLabel,
-        },
-        ticks: {
-          callback: (value) => formatBytes(value),
-        },
-        ...(scaleType === 'logarithmic' && {
-          min: 1,
-        }),
-      },
-    },
-  });
+  }, [theme, processedMetrics]);
 
   // Handle scale type toggle
   const handleScaleChange = (event, newScale) => {
@@ -277,6 +229,39 @@ const CommunicationCostChart = ({ metrics = [], title = 'Communication Costs' })
         return 'Bytes';
     }
   }, [chartView]);
+
+  // Themed chart chrome (re-skins on the dark/light toggle) with byte-formatted
+  // ticks/tooltip and linear/log scale switching layered on top.
+  const chartOptions = useMemo(() => {
+    const base = buildBaseChartOptions(theme, {
+      xTitle: 'Training Round',
+      yTitle: currentYAxisLabel,
+    });
+    return mergeChartOptions(base, {
+      animation: { duration: 180 },
+      plugins: {
+        tooltip: {
+          callbacks: {
+            label: (context) => {
+              const label = context.dataset.label || '';
+              const value = context.parsed.y;
+              return `${label}: ${formatBytes(value)}`;
+            },
+          },
+        },
+      },
+      scales: {
+        y: {
+          type: scaleType,
+          ticks: {
+            ...base.scales.y.ticks,
+            callback: (value) => formatBytes(value),
+          },
+          ...(scaleType === 'logarithmic' && { min: 1 }),
+        },
+      },
+    });
+  }, [theme, currentYAxisLabel, scaleType]);
 
   // Compute summary statistics
   const summaryStats = useMemo(() => {
@@ -431,7 +416,7 @@ const CommunicationCostChart = ({ metrics = [], title = 'Communication Costs' })
               </Stack>
             </Stack>
             <Box sx={{ height: 350 }}>
-              <Line ref={chartRef} data={currentChartData} options={getChartOptions(currentYAxisLabel)} />
+              <Line ref={chartRef} data={currentChartData} options={chartOptions} />
             </Box>
           </>
         )}

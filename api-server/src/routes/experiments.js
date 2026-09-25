@@ -1373,6 +1373,9 @@ router.post(
           case 'experiment_status_change':
             wsServer.broadcastExperimentStatusChange(experimentId, metricData);
             break;
+          case 'heartbeat':
+            wsServer.broadcastHeartbeat(experimentId, metricData);
+            break;
           case 'error':
             wsServer.broadcastError(experimentId, metricData);
             break;
@@ -1392,6 +1395,44 @@ router.post(
         ...updateData,
         updated_at: new Date().toISOString(),
       };
+
+      // Promote the fields the dashboard reads at the TOP level of the cached
+      // record. They arrive nested under `data`, so the spread above alone
+      // leaves GET /:id serving a stale status/round. Mirroring them here keeps
+      // the cache in step with the live socket events (no extra Python fetch).
+      const d = metricData || {};
+      const TERMINAL = ['completed', 'failed', 'stopped'];
+      switch (metricType) {
+        case 'experiment_status_change':
+          if (d.status) updatedData.status = d.status;
+          if (d.currentRound != null) updatedData.current_round = d.currentRound;
+          if (d.totalRounds != null) updatedData.total_rounds = d.totalRounds;
+          break;
+        case 'heartbeat':
+          // Keep the cached snapshot in step with the live pulse (round/target
+          // and a last-seen stamp) without a Python round-trip. Never resurrect
+          // a run that has already finished.
+          if (d.status && !TERMINAL.includes(updatedData.status)) updatedData.status = d.status;
+          if (d.currentRound != null) updatedData.current_round = d.currentRound;
+          if (d.totalRounds != null) updatedData.total_rounds = d.totalRounds;
+          updatedData.last_heartbeat = new Date().toISOString();
+          break;
+        case 'training_round_complete': {
+          const round = d.round != null ? d.round : updateData.round_number;
+          if (round != null) updatedData.current_round = round;
+          if (d.totalRounds != null) updatedData.total_rounds = d.totalRounds;
+          // A round landing implies the run is live; never downgrade a status
+          // that has already reached a terminal state.
+          if (!TERMINAL.includes(updatedData.status)) updatedData.status = 'running';
+          break;
+        }
+        case 'error':
+          if (d.message) updatedData.error = d.message;
+          break;
+        default:
+          break;
+      }
+
       experimentCache.set(cacheKey, updatedData, 0);
     }
 

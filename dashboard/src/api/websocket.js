@@ -7,15 +7,34 @@
 import { io } from 'socket.io-client';
 
 let socket = null;
+// The auth token the current socket was opened with. socket.io manages its own
+// reconnection, so we keep ONE instance for the app's lifetime and only tear it
+// down when the token actually changes (a new login) — see initializeWebSocket.
+let lastToken;
 
 /**
  * Initialize WebSocket connection
  * @returns {Socket} Socket.io client instance
  */
 export const initializeWebSocket = ({ token } = {}) => {
-  if (socket && socket.connected) {
+  // Reuse the single app-wide socket whenever the auth token is unchanged.
+  //
+  // The old guard (`socket && socket.connected`) recreated the socket whenever
+  // the existing one was momentarily NOT connected — i.e. during socket.io's
+  // own automatic reconnect. That abandoned the live instance (whose event
+  // handlers and room subscriptions the app had already bound) and opened a
+  // second, duplicate connection, breaking the single-subscription invariant
+  // useLiveExperiments depends on. Reuse the instance and let socket.io
+  // reconnect it; only recreate when there is no socket yet, or the token
+  // changed and we must re-handshake with fresh credentials.
+  if (socket && lastToken === token) {
     return socket;
   }
+  if (socket) {
+    socket.close();
+    socket = null;
+  }
+  lastToken = token;
 
   const wsUrl = import.meta.env.VITE_WS_URL || 'ws://localhost:3000';
   
@@ -72,59 +91,11 @@ export const closeWebSocket = () => {
     socket.close();
     socket = null;
   }
-};
-
-/**
- * Subscribe to training updates
- * @param {Function} callback - Called when training update is received
- */
-export const subscribeToTrainingUpdates = (callback) => {
-  const ws = getWebSocket();
-  ws.on('training:update', callback);
-  
-  // Return unsubscribe function
-  return () => ws.off('training:update', callback);
-};
-
-/**
- * Subscribe to experiment status changes
- * @param {Function} callback - Called when status changes
- */
-export const subscribeToExperimentStatus = (callback) => {
-  const ws = getWebSocket();
-  ws.on('experiment:status', callback);
-  
-  return () => ws.off('experiment:status', callback);
-};
-
-/**
- * Subscribe to privacy budget updates
- * @param {Function} callback - Called when privacy budget is updated
- */
-export const subscribeToPrivacyUpdates = (callback) => {
-  const ws = getWebSocket();
-  ws.on('privacy:budget', callback);
-  
-  return () => ws.off('privacy:budget', callback);
-};
-
-/**
- * Subscribe to training completion
- * @param {Function} callback - Called when training completes
- */
-export const subscribeToTrainingComplete = (callback) => {
-  const ws = getWebSocket();
-  ws.on('training:complete', callback);
-  
-  return () => ws.off('training:complete', callback);
+  lastToken = undefined;
 };
 
 export default {
   initializeWebSocket,
   getWebSocket,
   closeWebSocket,
-  subscribeToTrainingUpdates,
-  subscribeToExperimentStatus,
-  subscribeToPrivacyUpdates,
-  subscribeToTrainingComplete,
 };

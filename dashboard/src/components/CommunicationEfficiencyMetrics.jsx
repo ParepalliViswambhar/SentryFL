@@ -33,6 +33,7 @@ import {
   Tooltip,
   Typography,
 } from '@mui/material';
+import { alpha } from '@mui/material/styles';
 import TrendingUpIcon from '@mui/icons-material/TrendingUp';
 import TrendingDownIcon from '@mui/icons-material/TrendingDown';
 import CompressIcon from '@mui/icons-material/Compress';
@@ -341,9 +342,11 @@ const CommunicationEfficiencyMetrics = ({
                     <TableRow
                       key={client.clientId || index}
                       hover
-                      sx={{
-                        backgroundColor: isHigh ? 'rgba(237, 108, 2, 0.08)' : 'inherit',
-                      }}
+                      sx={(theme) => ({
+                        backgroundColor: isHigh
+                          ? alpha(theme.palette.warning.main, 0.08)
+                          : 'inherit',
+                      })}
                     >
                       <TableCell>{client.clientId}</TableCell>
                       <TableCell align="right" sx={{ fontWeight: isHigh ? 600 : 400 }}>
