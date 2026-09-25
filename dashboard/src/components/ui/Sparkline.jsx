@@ -8,12 +8,14 @@
  * @module components/ui/Sparkline
  */
 
+import { useId } from 'react';
 import PropTypes from 'prop-types';
 import { Box, useTheme } from '@mui/material';
 import { seriesColor, withAlpha } from '../../utils/chartTheme';
 
 export default function Sparkline({ data = [], color, width = 120, height = 36, strokeWidth = 2, fill = true }) {
   const theme = useTheme();
+  const gradientId = useId();
   const stroke = color || seriesColor(theme, 0);
   const points = (data || []).filter((value) => typeof value === 'number' && !Number.isNaN(value));
 
@@ -37,7 +39,17 @@ export default function Sparkline({ data = [], color, width = 120, height = 36, 
 
   return (
     <Box component="svg" width={width} height={height} viewBox={`0 0 ${width} ${height}`} sx={{ display: 'block' }} aria-hidden>
-      {fill && <path d={area} fill={withAlpha(stroke, 0.14)} stroke="none" />}
+      {fill && (
+        <>
+          <defs>
+            <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor={withAlpha(stroke, 0.28)} />
+              <stop offset="100%" stopColor={withAlpha(stroke, 0)} />
+            </linearGradient>
+          </defs>
+          <path d={area} fill={`url(#${gradientId})`} stroke="none" />
+        </>
+      )}
       <path d={line} fill="none" stroke={stroke} strokeWidth={strokeWidth} strokeLinejoin="round" strokeLinecap="round" />
     </Box>
   );

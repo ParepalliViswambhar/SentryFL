@@ -90,6 +90,14 @@ const experimentConfigSchema = Joi.object({
     .default('iid')
     .description('Data distribution strategy across clients'),
 
+  // Whether to run on generated demo data or real downloaded files. Forwarded
+  // to the Python backend, which defaults to synthetic so a run works with zero
+  // setup; select 'real' once SMD/NSL-KDD have been downloaded.
+  data_source: Joi.string()
+    .valid('synthetic', 'real')
+    .default('synthetic')
+    .description('Use synthetic demo data or real downloaded dataset files'),
+
   // Model-specific parameters (optional)
   model_params: Joi.object()
     .default({})

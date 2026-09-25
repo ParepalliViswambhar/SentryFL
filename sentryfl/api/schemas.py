@@ -21,6 +21,9 @@ class ExperimentConfig(BaseModel):
     enable_knowledge_distillation: bool = False
     callback_url: Optional[HttpUrl] = None
     data_path: str = "./data"
+    # "synthetic" generates a zero-setup demo dataset; "real" uses downloaded
+    # files under data_path/<dataset>/. Default demo so a fresh install runs.
+    data_source: str = Field("synthetic", pattern="^(synthetic|real)$")
     device: Optional[str] = None
     config: Dict[str, Any] = Field(default_factory=dict)
 

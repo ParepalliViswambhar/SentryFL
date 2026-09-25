@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import os
 import threading
 import time
 from copy import deepcopy
@@ -10,6 +11,7 @@ from typing import Any, Callable, Dict, List, Optional
 import httpx
 import torch
 
+from sentryfl.data.synthetic import ensure_demo_dataset
 from sentryfl.models.plm_backbone import PLMAnomalyDetector
 from sentryfl.trainer import MainTrainer
 from sentryfl.utils.config import ConfigurationSystem
@@ -403,10 +405,20 @@ def build_trainer(config: ExperimentConfig, **hooks: Any) -> MainTrainer:
         freeze_backbone=model_config["freeze_backbone"],
         dropout=model_config.get("dropout", 0.1),
     )
+    # Resolve the on-disk data location. `data_path` is the dataset *root*
+    # (e.g. ./data); the loader expects the dataset-specific dir under it
+    # (./data/SMD/machine-1-1, ./data/NSL-KDD). Historically the raw root was
+    # passed straight through, so SMD looked for ./data/machine-1-1 and failed.
+    # For the demo path we generate synthetic files under ./data/_demo first.
+    if getattr(config, "data_source", "synthetic") == "synthetic":
+        base_dir = ensure_demo_dataset(config.dataset, os.path.join(config.data_path, "_demo"))
+    else:
+        base_dir = config.data_path
+    resolved_data_path = os.path.join(base_dir, config.dataset)
     return MainTrainer(
         config=resolved,
         model=model,
-        data_path=config.data_path,
+        data_path=resolved_data_path,
         device=config.device or ("cuda" if torch.cuda.is_available() else "cpu"),
         **hooks,
     )

@@ -128,8 +128,11 @@ const Layout = () => {
             borderRadius: 2,
             display: 'grid',
             placeItems: 'center',
-            bgcolor: (t) => alpha(t.palette.primary.main, t.sentry?.isDark ? 0.16 : 0.12),
+            backgroundImage: (t) => t.sentry?.gradientSoft,
+            bgcolor: (t) =>
+              t.sentry?.gradientSoft ? undefined : alpha(t.palette.primary.main, t.sentry?.isDark ? 0.16 : 0.12),
             border: (t) => `1px solid ${alpha(t.palette.primary.main, 0.4)}`,
+            boxShadow: (t) => (t.sentry?.isDark ? `0 0 18px -6px ${alpha(t.palette.primary.main, 0.9)}` : 'none'),
           }}
         >
           <LiveDot color="primary" size={10} pulse={liveStatus === 'connected'} />
@@ -355,7 +358,7 @@ const Layout = () => {
           flexGrow: 1,
           width: { md: `calc(100% - ${drawerWidth}px)` },
           minHeight: '100vh',
-          backgroundColor: 'background.default',
+          backgroundColor: 'transparent',
         }}
       >
         <Toolbar /> {/* spacer for the fixed AppBar */}
