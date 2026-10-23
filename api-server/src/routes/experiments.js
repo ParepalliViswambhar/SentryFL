@@ -1342,6 +1342,46 @@ router.get(
 );
 
 /**
+ * GET /api/experiments/:id/model
+ * Download the latest global model for local client inference.
+ */
+router.get(
+  '/:id/model',
+  authenticate,
+  validateParams(experimentIdSchema),
+  asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    const user = req.user;
+    const experiment = experimentCache.get(`experiment:${id}`);
+
+    if (!experiment || !hasExperimentAccess(user, experiment)) {
+      throw new AppError('Access denied: You do not have permission to download this model', 403, {
+        experiment_id: id,
+      });
+    }
+
+    try {
+      const response = await axiosClient.get(`/api/train/${id}/model`, {
+        responseType: 'arraybuffer',
+        headers: { Accept: 'application/octet-stream' },
+      });
+      res.setHeader('Content-Type', 'application/octet-stream');
+      res.setHeader('Content-Disposition', `attachment; filename="${id}-global-model.pt"`);
+      res.setHeader('Content-Length', response.data.length);
+      return res.send(response.data);
+    } catch (error) {
+      if (error.response?.status === 404) {
+        throw new AppError('Experiment or global model not found', 404, { experiment_id: id });
+      }
+      if (error.response?.status === 409) {
+        throw new AppError('Global model is not available yet', 409, { experiment_id: id });
+      }
+      throw error;
+    }
+  })
+);
+
+/**
  * POST /api/experiments/:id/callback
  * Callback endpoint for Python backend to send updates
  * (Internal use only - called by Python backend)

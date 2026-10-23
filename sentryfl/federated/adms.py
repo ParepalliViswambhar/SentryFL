@@ -76,6 +76,10 @@ class ADMSModule:
             
             # Forward pass
             output = self.model(x)
+            if output.dim() > 1 and output.shape[-1] == 1:
+                output = output.squeeze(-1)
+            if y is not None:
+                y = y.float().view_as(output)
             
             # Compute loss
             if y is not None:

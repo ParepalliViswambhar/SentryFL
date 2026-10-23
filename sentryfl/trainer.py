@@ -36,6 +36,7 @@ from sentryfl.utils.experiment_logger import ExperimentLogger
 from sentryfl.utils.validation import check_gpu_memory
 from sentryfl.utils.exceptions import MemoryError as SentryFLMemoryError
 from sentryfl.utils.reproducibility import ReproducibilityManager
+from sentryfl.optimization.quantization_engine import QuantizationEngine
 
 # Configure logging
 logging.basicConfig(
@@ -107,6 +108,7 @@ class MainTrainer:
         self.federated_config = config.get_section('federated')
         self.privacy_config = config.get_section('privacy')
         self.param_efficiency_config = config.get_section('parameter_efficiency')
+        self.optimization_config = config.get_section('optimization')
         self.evaluation_config = config.get_section('evaluation')
         self.experiment_config = config.get_section('experiment')
 
@@ -254,6 +256,7 @@ class MainTrainer:
             train_data_normalized,
             train_labels
         )
+        self.calibration_data = torch.FloatTensor(train_windows)
         
         logger.info(f"Created {len(train_windows)} training windows")
         
@@ -429,6 +432,15 @@ class MainTrainer:
                 model=client.model,
                 selection_ratio=selection_ratio
             )
+            # ADMS is a client-side importance mask. Generate it from the
+            # client's private shard before the first round; otherwise the
+            # module exists but its gradient mask remains unused.
+            adms_module.compute_importance(
+                anomaly_loader=client.load_local_data(),
+                criterion=client.criterion,
+                device=self.device,
+            )
+            adms_module.generate_mask()
             self.adms_modules[client.client_id] = adms_module
         
         logger.info(f"ADMS enabled: selection_ratio={selection_ratio:.1%}")
@@ -630,9 +642,38 @@ class MainTrainer:
         
         # Final evaluation
         self._final_evaluation()
+
+        # INT8 is post-training static quantization in SentryFL.  It is applied
+        # after federated optimization so quantized kernels never interfere with
+        # autograd or DP accounting during local client training.
+        if self.config.get_section('optimization').get('quantization_enabled', False):
+            self._quantize_final_model()
         
         # Close logger
         self.experiment_logger.close()
+
+    def _quantize_final_model(self):
+        """Convert the trained global model to INT8 for edge inference."""
+        logger.info("INT8 quantization enabled: quantizing the final global model")
+        calibration_size = self.optimization_config.get('quantization_calibration_batches', 10)
+        calibration_dataset = TensorDataset(
+            self.calibration_data,
+            torch.zeros(len(self.calibration_data), dtype=torch.float32),
+        )
+        calibration_loader = DataLoader(
+            calibration_dataset,
+            batch_size=self.training_config['batch_size'],
+            shuffle=False,
+        )
+        engine = QuantizationEngine(
+            self.aggregation_server.get_global_model(),
+            device='cpu',
+        )
+        engine.calibrate(calibration_loader, num_batches=calibration_size)
+        quantized_model = engine.convert_to_int8()
+        quantized_path = Path(self.experiment_config['output_dir']) / 'global_model_int8.pt'
+        torch.save(quantized_model.state_dict(), quantized_path)
+        logger.info("INT8 global model saved to %s", quantized_path)
     
     def _select_clients(self, num_clients: int) -> List[FederatedClient]:
         """Select clients for training round (random selection)."""

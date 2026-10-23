@@ -1,52 +1,74 @@
-/**
- * MongoDB Connection Management
- *
- * Centralizes the Mongoose connection lifecycle for the API server. The
- * connection URI is read from the MONGODB_URI environment variable so the same
- * code works against a local mongod, the Docker `mongo` service, or a managed
- * cluster.
- *
- * In tests, an in-memory MongoDB (mongodb-memory-server) sets MONGODB_URI
- * before the app connects (see src/test/setup.js), so no external server is
- * required.
- */
+/** PostgreSQL connection and schema lifecycle for the API server. */
 
-const mongoose = require('mongoose');
-
-// Fail fast on malformed queries and keep buffering disabled so a missing
-// connection surfaces as an error instead of hanging requests forever.
-mongoose.set('strictQuery', true);
+const { Pool } = require('pg');
 
 let connectionPromise = null;
+let pool = null;
 
-/**
- * Resolve the MongoDB connection URI.
- *
- * @returns {string} MongoDB connection string
- */
-const getMongoUri = () =>
-  process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/sentryfl';
+const getDatabaseUrl = () =>
+  process.env.DATABASE_URL || 'postgresql://sentryfl:sentryfl@127.0.0.1:5432/sentryfl';
 
-/**
- * Connect to MongoDB. Safe to call multiple times — subsequent calls reuse the
- * in-flight or established connection.
- *
- * @param {string} [uri] - Optional explicit URI (defaults to MONGODB_URI)
- * @returns {Promise<import('mongoose').Connection>} The active connection
- */
-const connect = async (uri = getMongoUri()) => {
-  if (mongoose.connection.readyState === 1) {
-    return mongoose.connection;
+const schemaStatements = [
+  `CREATE TABLE IF NOT EXISTS users (
+    user_id VARCHAR(120) PRIMARY KEY,
+    username VARCHAR(120) NOT NULL UNIQUE,
+    password TEXT NOT NULL,
+    role VARCHAR(20) NOT NULL DEFAULT 'user' CHECK (role IN ('user', 'admin')),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`,
+  `CREATE TABLE IF NOT EXISTS audit_logs (
+    log_id UUID PRIMARY KEY,
+    timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    user_id VARCHAR(120),
+    username VARCHAR(120),
+    action VARCHAR(120) NOT NULL,
+    resource_type VARCHAR(80),
+    resource_id VARCHAR(120),
+    metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+    ip_address VARCHAR(120),
+    success BOOLEAN NOT NULL DEFAULT TRUE,
+    error_message TEXT
+  )`,
+  'CREATE INDEX IF NOT EXISTS audit_logs_timestamp_idx ON audit_logs (timestamp DESC)',
+  'CREATE INDEX IF NOT EXISTS audit_logs_user_idx ON audit_logs (user_id)',
+  'CREATE INDEX IF NOT EXISTS audit_logs_resource_idx ON audit_logs (resource_type, resource_id)',
+];
+
+const createPool = () => {
+  if (process.env.NODE_ENV === 'test') {
+    const { newDb } = require('pg-mem');
+    const memoryDb = newDb({ autoCreateForeignKeyIndices: true });
+    const pg = memoryDb.adapters.createPg();
+    return { pool: new pg.Pool(), close: async () => {} };
+  }
+
+  return {
+    pool: new Pool({
+      connectionString: getDatabaseUrl(),
+      connectionTimeoutMillis: Number(process.env.DB_CONNECT_TIMEOUT_MS) || 10000,
+      max: Number(process.env.DB_POOL_MAX) || 10,
+    }),
+    close: async () => pool?.end(),
+  };
+};
+
+const connect = async () => {
+  if (pool) {
+    return pool;
   }
 
   if (!connectionPromise) {
-    connectionPromise = mongoose
-      .connect(uri, {
-        serverSelectionTimeoutMS: parseInt(process.env.MONGO_TIMEOUT_MS, 10) || 10000,
+    connectionPromise = Promise.resolve()
+      .then(async () => {
+        const created = createPool();
+        pool = created.pool;
+        for (const statement of schemaStatements) {
+          await pool.query(statement);
+        }
+        return pool;
       })
-      .then((m) => m.connection)
       .catch((err) => {
-        // Reset so a later call can retry after a transient failure.
+        pool = null;
         connectionPromise = null;
         throw err;
       });
@@ -55,29 +77,27 @@ const connect = async (uri = getMongoUri()) => {
   return connectionPromise;
 };
 
-/**
- * Disconnect from MongoDB. Used on graceful shutdown and in test teardown.
- *
- * @returns {Promise<void>}
- */
 const disconnect = async () => {
   connectionPromise = null;
-  if (mongoose.connection.readyState !== 0) {
-    await mongoose.disconnect();
+  if (pool) {
+    await pool.end();
   }
+  pool = null;
 };
 
-/**
- * Whether the connection is currently established and usable.
- *
- * @returns {boolean}
- */
-const isConnected = () => mongoose.connection.readyState === 1;
+const isConnected = () => Boolean(pool);
+
+const query = async (text, values = []) => {
+  if (!pool) {
+    await connect();
+  }
+  return pool.query(text, values);
+};
 
 module.exports = {
   connect,
   disconnect,
   isConnected,
-  getMongoUri,
-  mongoose,
+  getDatabaseUrl,
+  query,
 };

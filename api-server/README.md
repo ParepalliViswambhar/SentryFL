@@ -16,7 +16,7 @@ The API Server (Tier 2) provides RESTful and WebSocket APIs for:
 This server acts as middleware with the following responsibilities:
 - **Request Routing**: Routes frontend requests to appropriate Python backend endpoints
 - **Response Transformation**: Transforms backend responses to frontend-friendly formats
-- **Persistence**: Stores users, audit logs, and configuration in MongoDB (via Mongoose)
+- **Persistence**: Stores users and audit logs in PostgreSQL
 - **Caching**: Caches frequently accessed data (metrics, model info) in-process with node-cache
 - **Authentication**: JWT-based authentication for secure access
 - **WebSocket Management**: Real-time bidirectional communication for training updates
@@ -42,18 +42,17 @@ api-server/
 
 - Node.js >= 18.0.0
 - npm >= 9.0.0
-- MongoDB reachable via `MONGODB_URI` (defaults to `mongodb://127.0.0.1:27017/sentryfl`)
+- PostgreSQL reachable via `DATABASE_URL` (defaults to `postgresql://sentryfl:sentryfl@127.0.0.1:5432/sentryfl`)
 - Python backend running on http://localhost:5000 (configurable)
 
 ## Data storage
 
-Users, audit logs, and saved configurations are persisted in MongoDB through
-Mongoose (`src/db/`). Set the connection string with the `MONGODB_URI`
-environment variable. On first startup a default admin user (`admin` /
-`admin123`) is seeded unless `SEED_DEFAULT_ADMIN=false`; override the seed with
-`DEFAULT_ADMIN_USERNAME` / `DEFAULT_ADMIN_PASSWORD`. Tests run against an
-in-memory MongoDB (`mongodb-memory-server`), so no external database is needed
-to run the suite.
+Users and audit logs are persisted in PostgreSQL through parameterized queries
+(`src/db/`). The API creates its small application schema on startup. On first
+startup a default admin user (`admin` / `admin123`) is seeded unless
+`SEED_DEFAULT_ADMIN=false`; override the seed with `DEFAULT_ADMIN_USERNAME` /
+`DEFAULT_ADMIN_PASSWORD`. Tests use `pg-mem`, a PostgreSQL-compatible in-memory
+adapter, so no external database is needed to run the suite.
 
 ## Installation
 
@@ -130,7 +129,7 @@ auth-protected routes require a `Bearer <JWT>` token (obtain one from
 
 ### Health
 
-- `GET /health` - Health check (includes MongoDB connection status)
+- `GET /health` - Health check (includes PostgreSQL connection status)
 
 ### Auth (`/api/auth`)
 

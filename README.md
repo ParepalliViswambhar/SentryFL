@@ -12,7 +12,7 @@ SentryFL is a three-tier differentially private, communication-efficient federat
 - **Formal Privacy Guarantees**: DP-SGD with rigorous privacy accounting (ε, δ tracking)
 - **Empirical Privacy Evaluation**: Membership Inference Attack framework to measure actual privacy leakage
 - **Communication Efficiency**: ~97% *measured* upload reduction via FFA-LoRA adapters (v2); ADMS retained as a baseline (see [SentryFL v2](#-sentryfl-v2--efficient-private-adaptation))
-- **Edge Deployment**: INT8 post-training quantization for CPU-only devices
+- **Edge Deployment**: INT8 post-training quantization for CPU-only inference devices
 - **Byzantine Robustness**: Optional trimmed mean aggregation for malicious client detection
 - **Production Ready**: Checkpointing, error recovery, comprehensive logging
 
@@ -20,10 +20,15 @@ SentryFL is a three-tier differentially private, communication-efficient federat
 - **SMD (Server Machine Dataset)**: Multivariate server telemetry time-series
 - **NSL-KDD**: Network intrusion detection with labeled attacks
 
+These are the currently implemented loaders, not a limit on the project scope.
+Future loaders should cover SWaT, WADI, UCR/UEA, CIC-IDS, and user-provided CSV
+or Parquet data through a registry with an explicit feature-schema and split
+contract.
+
 ### System Architecture
 SentryFL is architected as a three-tier system:
 1. **Tier 1**: React Web Dashboard (visualization and experiment control, including live privacy-budget and membership-inference charts)
-2. **Tier 2**: Node.js + Express API Server (REST and WebSocket endpoints, JWT auth, MongoDB persistence for users and audit logs)
+2. **Tier 2**: Node.js + Express API Server (REST and WebSocket endpoints, JWT auth, PostgreSQL persistence for users and audit logs)
 3. **Tier 3**: Python Backend (ML training, federated learning, privacy mechanisms)
 
 ## 🔬 SentryFL v2 — Efficient-Private Adaptation
@@ -76,6 +81,71 @@ python -m scripts.run_v2_experiments --exp all --out results/v2
 > reported as **entity/silo-level**, and all privacy-utility-communication results
 > are framed as a **frontier**, never "strictly better".
 
+## 🔁 Federated Training Workflow
+
+Each round follows the client/server workflow that motivates SentryFL:
+
+1. The server broadcasts the current global model parameters. Raw client data
+    never leaves the client.
+2. Each selected client loads those parameters and trains locally for the
+  configured number of epochs on its private shard.
+3. With `privacy.mechanism: "record_dpsgd"`, Opacus performs per-sample clipping
+  and Gaussian noise addition during client-side DP-SGD. With the recommended
+  `"dp_fedavg"` mode, clients train locally and the server clips each client
+  model delta and adds one Gaussian draw to the aggregate. Both modes account
+  for $(\epsilon, \delta)$; MIA evaluation measures empirical leakage rather
+  than replacing the formal guarantee.
+4. Clients send trainable parameters (or adapter parameters when PEFT is used),
+  plus sample counts and metrics. They do not send raw records.
+5. The server validates updates, aggregates them, updates the global model, logs
+  privacy and communication metrics, and broadcasts the result in the next
+  round.
+
+### Aggregation Formula
+
+For ordinary FedAvg, client $k$ contributes $n_k$ local samples and parameters
+$\theta_k$. The server update is:
+
+$$
+N = \sum_{k=1}^{K} n_k, \qquad
+θ_{t+1} = \sum_{k=1}^{K} \frac{n_k}{N}θ_k.
+$$
+
+For `dp_fedavg`, the server forms $\Delta_k = \theta_k - \theta_t$, clips each
+delta to norm $C$, and adds Gaussian noise:
+
+$$
+\bar{\Delta}_t = \frac{1}{K}\sum_{k=1}^{K}
+\operatorname{clip}(\Delta_k, C) + \mathcal{N}(0, (\sigma C/K)^2 I),
+\qquad \theta_{t+1} = \theta_t + \bar{\Delta}_t.
+$$
+
+The implementation uses the weighted sample average for plain FedAvg and the
+clipped mean-delta mechanism for DP-FedAvg. Byzantine trimmed-mean aggregation
+is an optional non-DP alternative.
+
+### Techniques Used
+
+- **Federated learning / FedAvg**: weighted model aggregation without centralizing records.
+- **DP-SGD**: Opacus per-sample clipping and noise for record-level privacy.
+- **DP-FedAvg**: client-delta clipping, server Gaussian noise, and PRV/RDP accounting for silo-level privacy.
+- **Membership inference evaluation**: empirical attack-success measurement against trained models.
+- **FFA-LoRA, LoRA, and ADMS**: parameter-efficient updates and reduced communication; FFA-LoRA is the recommended v2 method.
+- **Byzantine robustness**: optional trimmed-mean aggregation.
+- **INT8 post-training quantization**: calibration and conversion of the completed global FP32 model for edge inference.
+- **Knowledge distillation and reproducibility tooling**: optional optimization and seeded experiment/checkpoint reporting.
+
+### Quantization and Training Time
+
+The current INT8 implementation is **post-training static quantization (PTQ)**.
+It is deliberately not used inside the local autograd loop: DP-SGD, LoRA, and
+the current model architecture train in FP32, then the completed global model is
+calibrated and written to `global_model_int8.pt` when
+`optimization.quantization_enabled: true`. This improves edge model size and
+inference cost, but it cannot reduce local training time. Quantization-aware
+training (QAT) is a separate future mode and should only be enabled after the
+model has been verified to support fake-quantized training and DP accounting.
+
 ## 📋 Table of Contents
 
 - [Quick Start](#quick-start)
@@ -105,7 +175,7 @@ pip install -r requirements.txt
 
 ### Docker Compose Deployment
 
-The complete deployment includes the Python ML backend, Node.js API server, React production server, MongoDB, Redis, and an Nginx HTTP/HTTPS gateway.
+The complete deployment includes the Python ML backend, Node.js API server, React production server, PostgreSQL, Redis, and an Nginx HTTP/HTTPS gateway.
 
 ```bash
 cp .env.example .env
@@ -113,11 +183,9 @@ cp .env.example .env
 docker compose up --build -d
 ```
 
-MongoDB runs locally **without authentication** (no password) and is published on
-`localhost:27017`, so you can browse the data with **MongoDB Compass** — just connect
-to `mongodb://localhost:27017` and open the `sentryfl` database. To point the API
-server at a MongoDB you run yourself instead of the bundled container, set
-`MONGODB_URI=mongodb://localhost:27017/sentryfl` in `.env`.
+PostgreSQL is exposed on `localhost:5432` by default. The Compose defaults are
+`sentryfl` / `sentryfl` / `sentryfl` for database, user, and password; set
+`POSTGRES_*` or `DATABASE_URL` in `.env` for another instance.
 
 Open `https://localhost` for the dashboard. The gateway creates a development self-signed certificate in the `nginx-certs` volume; mount or replace `tls.crt` and `tls.key` there for a trusted certificate. To stop the deployment, run `docker compose down`.
 
@@ -134,19 +202,16 @@ each tier depends on the one before it.
 **Prerequisites**
 - **Python** 3.8+ (3.11 recommended) with `pip`
 - **Node.js** ≥ 18 and **npm** ≥ 9
-- **MongoDB** Community Server running locally on port `27017` (the API server needs
-  it for users and audit logs). Install it from
-  [mongodb.com/try/download/community](https://www.mongodb.com/try/download/community)
-  and start `mongod`, or point `MONGODB_URI` at a MongoDB Atlas cluster instead.
+- **PostgreSQL** 14+ running locally on port `5432` (the API server needs it for
+  users and audit logs), or use the bundled Compose service.
 - **Redis is *not* required** for local development — the Python package doesn't use
   it (the Compose file wires it in for parity only), so you can skip it entirely.
 
-**Terminal 1 — MongoDB** (skip if MongoDB already runs as a system service)
+**Terminal 1 — PostgreSQL** (skip if PostgreSQL already runs as a system service)
 ```bash
-# Passwordless local MongoDB on the default port 27017.
-mongod --dbpath ./data/db          # create ./data/db first if it doesn't exist
+# Create the application database and user using your local PostgreSQL tooling.
+createdb sentryfl
 ```
-Browse the data any time with **MongoDB Compass** at `mongodb://localhost:27017`.
 
 **Terminal 2 — Python ML backend (Tier 3, port 5000)**
 ```bash
@@ -162,7 +227,7 @@ npm install
 cp .env.example .env               # Windows PowerShell: copy .env.example .env
 # Edit .env and set JWT_SECRET to any non-empty value. The defaults already point
 # PYTHON_BACKEND_URL at http://localhost:5000, CORS_ORIGIN at http://localhost:5173,
-# and MONGODB_URI at mongodb://127.0.0.1:27017/sentryfl.
+# and DATABASE_URL at postgresql://sentryfl:sentryfl@127.0.0.1:5432/sentryfl.
 npm run dev                        # or: npm start
 ```
 On first start it seeds a default admin user (`admin` / `admin123`); override with
@@ -182,9 +247,35 @@ npm run dev
 Open **http://localhost:5173** and log in with `admin` / `admin123`. To stop the
 stack, press `Ctrl+C` in each terminal.
 
-> **Note:** These four processes run the dashboard, API, and ML control plane. Actual
-> federated training and evaluation still run through the CLI (`python -m sentryfl.cli
-> train ...`, see below) after you've prepared a dataset.
+The dashboard's **New Experiment** action calls the Node API, which starts the
+Python runner. The Python runner creates the server-side global model, partitions
+data into private client shards, executes local client training, aggregates the
+returned updates, and streams round metrics back to the dashboard. The CLI remains
+available for offline/reproducible experiments, but it is not required for the
+web workflow.
+
+### Complete Client Model Workflow
+
+After a run has initialized its model, an authorized client can download the
+latest global artifact from the experiment detail page or the API:
+
+```bash
+# TOKEN is returned by POST /api/auth/login.
+curl -L \
+  -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:3000/api/experiments/<EXPERIMENT_ID>/model" \
+  -o global-model.pt
+```
+
+The artifact is a PyTorch file containing `experiment_id`, the resolved training
+`config`, and `state_dict`. A client constructs the same model architecture,
+loads `state_dict` locally, and runs inference or private local training. The
+client sends only its updated trainable parameters back through the federated
+round; it never uploads its raw records.
+
+For production, use a trusted model-loading policy and validate the artifact
+before loading it. PyTorch checkpoint files use Python serialization and should
+only be loaded from the authenticated SentryFL service.
 
 ### Dataset Setup
 
@@ -350,6 +441,7 @@ parameter_efficiency:
 - **[ARCHITECTURE.md](ARCHITECTURE.md)**: System architecture and model design details
 - **[HYPERPARAMETERS.md](HYPERPARAMETERS.md)**: Hyperparameter tuning guidelines and recommendations
 - **[TROUBLESHOOTING.md](TROUBLESHOOTING.md)**: Common errors and solutions
+- **[PAPER_GAP_ANALYSIS.md](PAPER_GAP_ANALYSIS.md)**: PeFAD/proposal implementation status and remaining research work
 
 ## 🏗️ Project Structure
 

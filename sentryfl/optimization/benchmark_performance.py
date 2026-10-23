@@ -245,7 +245,6 @@ class TestMixedPrecisionBenchmark:
     """
     
     @pytest.mark.benchmark
-    @pytest.mark.skipif(not torch.cuda.is_available(), reason="Mixed precision requires GPU")
     def test_mixed_precision_vs_fp32(self, benchmark_model, benchmark_dataset):
         """
         Compare training speed between FP16 and FP32.

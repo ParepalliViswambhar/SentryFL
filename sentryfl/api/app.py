@@ -3,7 +3,7 @@
 import uuid
 from typing import Callable, Dict, Optional
 
-from fastapi import APIRouter, BackgroundTasks, FastAPI, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, FastAPI, HTTPException, Query, Response
 
 from .runner import ExperimentRunner
 from .schemas import ExperimentConfig, ExperimentStatus
@@ -88,6 +88,22 @@ def create_app(runner_factory: Optional[Callable[..., ExperimentRunner]] = None)
     @router.get("/train/{experiment_id}/report")
     async def get_report(experiment_id: str):
         return _get_runner(runners, experiment_id).get_report()
+
+    @router.get("/train/{experiment_id}/model")
+    async def download_model(experiment_id: str):
+        """Download the current global model for local client inference."""
+        runner = _get_runner(runners, experiment_id)
+        try:
+            artifact = runner.get_model_artifact()
+        except RuntimeError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        return Response(
+            content=artifact,
+            media_type="application/octet-stream",
+            headers={
+                "Content-Disposition": f'attachment; filename="{experiment_id}-global-model.pt"',
+            },
+        )
 
     @router.get("/health")
     async def health_check():

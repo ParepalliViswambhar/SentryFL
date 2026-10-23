@@ -90,15 +90,15 @@ app.use(notFoundHandler);
 // Global error handler - must be last middleware
 app.use(errorHandler);
 
-// Start server (connect to MongoDB first). Tests manage their own connection
+// Start server (connect to PostgreSQL first). Tests manage their own connection
 // via src/test/setup.js, so skip startup there.
 async function start() {
   try {
-    await db.connect();
-    console.info(`🗄️  Connected to MongoDB (${db.getMongoUri()})`);
+     await db.connect(); // Connect to PostgreSQL
+     console.info(`🗄️  Connected to PostgreSQL (${db.getDatabaseUrl()})`);
     await seedDefaultAdmin();
   } catch (err) {
-    console.error('❌ Failed to connect to MongoDB:', err.message);
+     console.error('❌ Failed to connect to PostgreSQL:', err.message);
     process.exit(1);
   }
 

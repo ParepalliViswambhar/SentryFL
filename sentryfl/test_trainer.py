@@ -303,7 +303,6 @@ class TestMinimalTraining:
 class TestDifferentialPrivacy:
     """Test training with differential privacy enabled"""
     
-    @pytest.mark.skip(reason="DP integration has known issues with parameter loading in Opacus GradSampleModule")
     def test_training_with_dp_enabled(self, minimal_config, minimal_model, temp_data_dir, temp_experiment_dir):
         """
         Test that training works with DP-SGD
@@ -345,7 +344,6 @@ class TestDifferentialPrivacy:
         # Verify training completed
         assert trainer.current_round == 2
     
-    @pytest.mark.skip(reason="DP integration has known issues with parameter loading in Opacus GradSampleModule")
     def test_privacy_budget_tracking(self, minimal_config, minimal_model, temp_data_dir, temp_experiment_dir):
         """
         Test that privacy budget is tracked during training
@@ -569,7 +567,6 @@ class TestCheckpointManagement:
 class TestPrivacyBudgetExhaustion:
     """Test privacy budget exhaustion handling"""
     
-    @pytest.mark.skip(reason="DP has known issues with Opacus GradSampleModule")
     def test_training_stops_on_budget_exhaustion(self, minimal_config, minimal_model, temp_data_dir, temp_experiment_dir):
         """
         Test that training terminates when privacy budget is exhausted
@@ -625,7 +622,6 @@ class TestPrivacyBudgetExhaustion:
 class TestCombinedFeatures:
     """Test combinations of features together"""
     
-    @pytest.mark.skip(reason="DP+ADMS combination has known issues with Opacus GradSampleModule")
     def test_dp_and_adms_together(self, minimal_config, minimal_model, temp_data_dir, temp_experiment_dir):
         """
         Test training with both DP and ADMS enabled
@@ -669,7 +665,6 @@ class TestCombinedFeatures:
         # Verify training completed
         assert trainer.current_round == 2
     
-    @pytest.mark.skip(reason="DP has known issues with Opacus GradSampleModule")
     def test_all_features_together(self, minimal_config, minimal_model, temp_data_dir, temp_experiment_dir):
         """
         Test training with DP, ADMS, and checkpointing

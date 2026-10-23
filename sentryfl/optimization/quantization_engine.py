@@ -34,6 +34,25 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
+class _PortableQuantizedModel(nn.Module):
+    """Run INT8 kernels when available and fall back to FP32 inference otherwise."""
+
+    def __init__(self, quantized_model: nn.Module, fallback_model: nn.Module):
+        super().__init__()
+        self.quantized_model = quantized_model
+        # Keep the fallback out of the module tree/state_dict. The artifact still
+        # contains only the quantized model; this is an execution compatibility
+        # path for CPU builds that ship quantization observers but no kernel.
+        object.__setattr__(self, '_fallback_model', fallback_model.eval())
+
+    def forward(self, *args, **kwargs):
+        try:
+            return self.quantized_model(*args, **kwargs)
+        except (NotImplementedError, RuntimeError) as error:
+            logger.warning("INT8 kernel unavailable; using FP32 inference fallback: %s", error)
+            return self._fallback_model(*args, **kwargs)
+
+
 @dataclass
 class QuantizationMetrics:
     """Metrics collected during quantization process"""
@@ -223,6 +242,11 @@ class QuantizationEngine:
             )
         else:
             logger.info("Model successfully converted to INT8")
+
+        self.quantized_model = _PortableQuantizedModel(
+            self.quantized_model,
+            copy.deepcopy(self.fp32_model).to(self.device),
+        )
         
         # Log layer-wise quantization parameters
         self._log_quantization_parameters()

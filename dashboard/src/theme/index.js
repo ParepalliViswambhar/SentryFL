@@ -22,7 +22,7 @@ import { createTheme, alpha } from '@mui/material/styles';
 // with system fallbacks so the app still looks intentional offline. Numeric
 // metrics use the monospace stack so digits align in tables and stat tiles.
 export const FONT_SANS =
-  "'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif";
+  "'Manrope', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif";
 export const FONT_MONO =
   "'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace";
 
@@ -74,29 +74,24 @@ const DARK = {
 };
 
 const LIGHT = {
-  primary: { main: '#0891b2', light: '#06b6d4', dark: '#0e7490', contrastText: '#ffffff' },
-  secondary: { main: '#7c3aed', light: '#a78bfa', dark: '#5b21b6', contrastText: '#ffffff' },
-  success: { main: '#059669', light: '#34d399', dark: '#047857', contrastText: '#ffffff' },
-  warning: { main: '#d97706', light: '#f59e0b', dark: '#b45309', contrastText: '#ffffff' },
-  error: { main: '#dc2626', light: '#ef4444', dark: '#b91c1c', contrastText: '#ffffff' },
-  info: { main: '#0284c7', light: '#0ea5e9', dark: '#0369a1', contrastText: '#ffffff' },
-  background: { default: '#eef2f8', paper: '#ffffff' },
-  surfaceAlt: '#f5f8fc',
-  text: { primary: '#0f1c33', secondary: '#4a5b76', disabled: '#94a3b8' },
-  divider: 'rgba(51,65,85,0.14)',
-  accentGlow: 'rgba(8,145,178,0.35)',
-  glassBg: 'rgba(255,255,255,0.68)',
-  glassBorder: 'rgba(148,163,184,0.22)',
-  glassHighlight: 'linear-gradient(180deg, rgba(255,255,255,0.75), rgba(255,255,255,0) 45%)',
-  glassShadow:
-    '0 1px 0 rgba(255,255,255,0.9) inset, 0 20px 40px -22px rgba(15,28,51,0.22), 0 6px 16px -10px rgba(15,28,51,0.12)',
-  pageBackground:
-    'radial-gradient(1200px 760px at 12% -12%, rgba(8,145,178,0.12), transparent 60%),' +
-    'radial-gradient(1080px 720px at 108% 4%, rgba(124,58,237,0.10), transparent 56%),' +
-    'radial-gradient(900px 900px at 52% 128%, rgba(5,150,105,0.06), transparent 60%),' +
-    'linear-gradient(180deg, #eef2f8 0%, #e6ecf6 100%)',
-  gradient: 'linear-gradient(135deg, #0891b2 0%, #2563eb 52%, #7c3aed 100%)',
-  gradientSoft: 'linear-gradient(135deg, rgba(8,145,178,0.12), rgba(124,58,237,0.12))',
+  primary: { main: '#0f766e', light: '#14b8a6', dark: '#115e59', contrastText: '#ffffff' },
+  secondary: { main: '#ea580c', light: '#fb923c', dark: '#c2410c', contrastText: '#ffffff' },
+  success: { main: '#15803d', light: '#22c55e', dark: '#166534', contrastText: '#ffffff' },
+  warning: { main: '#b45309', light: '#f59e0b', dark: '#92400e', contrastText: '#ffffff' },
+  error: { main: '#be123c', light: '#fb7185', dark: '#9f1239', contrastText: '#ffffff' },
+  info: { main: '#0369a1', light: '#0ea5e9', dark: '#075985', contrastText: '#ffffff' },
+  background: { default: '#f3f5f2', paper: '#ffffff' },
+  surfaceAlt: '#e8eeea',
+  text: { primary: '#17221f', secondary: '#5b6b65', disabled: '#93a39c' },
+  divider: 'rgba(23,34,31,0.13)',
+  accentGlow: 'rgba(15,118,110,0.24)',
+  glassBg: '#ffffff',
+  glassBorder: 'rgba(23,34,31,0.12)',
+  glassHighlight: 'none',
+  glassShadow: '0 10px 24px -18px rgba(23,34,31,0.45)',
+  pageBackground: 'linear-gradient(180deg, #f3f5f2 0%, #e9efeb 100%)',
+  gradient: 'linear-gradient(135deg, #0f766e 0%, #0d9488 55%, #ea580c 100%)',
+  gradientSoft: 'linear-gradient(135deg, rgba(15,118,110,0.10), rgba(234,88,12,0.10))',
 };
 
 const tokensFor = (mode) => (mode === 'light' ? LIGHT : DARK);
@@ -105,11 +100,11 @@ const tokensFor = (mode) => (mode === 'light' ? LIGHT : DARK);
 // display sizes reads as "product", not "document".
 const buildTypography = () => ({
   fontFamily: FONT_SANS,
-  h1: { fontWeight: 800, fontSize: '2.6rem', letterSpacing: '-0.025em', lineHeight: 1.08 },
-  h2: { fontWeight: 800, fontSize: '2rem', letterSpacing: '-0.02em', lineHeight: 1.14 },
-  h3: { fontWeight: 800, fontSize: '1.6rem', letterSpacing: '-0.02em', lineHeight: 1.18 },
-  h4: { fontWeight: 800, fontSize: '1.3rem', letterSpacing: '-0.015em' },
-  h5: { fontWeight: 700, fontSize: '1.1rem', letterSpacing: '-0.01em' },
+  h1: { fontWeight: 800, fontSize: '2.6rem', letterSpacing: 0, lineHeight: 1.08 },
+  h2: { fontWeight: 800, fontSize: '2rem', letterSpacing: 0, lineHeight: 1.14 },
+  h3: { fontWeight: 800, fontSize: '1.6rem', letterSpacing: 0, lineHeight: 1.18 },
+  h4: { fontWeight: 800, fontSize: '1.3rem', letterSpacing: 0 },
+  h5: { fontWeight: 700, fontSize: '1.1rem', letterSpacing: 0 },
   h6: { fontWeight: 700, fontSize: '0.98rem' },
   subtitle1: { fontWeight: 600 },
   subtitle2: { fontWeight: 600 },
@@ -206,7 +201,7 @@ export function createAppTheme(mode = 'dark') {
             backdropFilter: glassBlur,
             WebkitBackdropFilter: glassBlur,
             border: `1px solid ${t.glassBorder}`,
-            borderRadius: 18,
+            borderRadius: 10,
             boxShadow: t.glassShadow,
             transition: 'border-color .22s ease, box-shadow .22s ease, transform .22s ease',
           },
@@ -215,7 +210,7 @@ export function createAppTheme(mode = 'dark') {
       MuiButton: {
         defaultProps: { disableElevation: true },
         styleOverrides: {
-          root: { borderRadius: 12, paddingInline: 18, fontWeight: 600 },
+          root: { borderRadius: 8, paddingInline: 18, fontWeight: 600 },
           containedPrimary: {
             backgroundImage: t.gradient,
             boxShadow: isDark
@@ -267,7 +262,7 @@ export function createAppTheme(mode = 'dark') {
       MuiListItemButton: {
         styleOverrides: {
           root: {
-            borderRadius: 12,
+            borderRadius: 8,
             marginInline: 8,
             transition: 'background-color .18s ease, color .18s ease',
             '&.Mui-selected': {
@@ -297,7 +292,7 @@ export function createAppTheme(mode = 'dark') {
       },
       MuiAlert: {
         styleOverrides: {
-          root: { borderRadius: 14, backdropFilter: glassBlur, WebkitBackdropFilter: glassBlur },
+          root: { borderRadius: 8, backdropFilter: 'none', WebkitBackdropFilter: 'none' },
         },
       },
     },

@@ -75,6 +75,7 @@ parameter_efficiency:
 optimization:
   quantization_enabled: false
   quantization_dtype: "int8"
+  quantization_calibration_batches: 10  # Training batches used for post-training INT8 calibration
   knowledge_distillation_enabled: false
   distillation_temperature: 3.0
   distillation_alpha: 0.5

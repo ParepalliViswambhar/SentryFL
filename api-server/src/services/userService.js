@@ -1,7 +1,7 @@
 /**
  * User Service
  *
- * Manages user data storage and authentication, backed by MongoDB (Mongoose).
+ * Manages user data storage and authentication, backed by PostgreSQL.
  * All methods are asynchronous. Passwords are hashed with bcrypt before
  * storage and are never returned to callers.
  *
@@ -12,7 +12,8 @@
  */
 
 const bcrypt = require('bcryptjs');
-const User = require('../db/models/User');
+const { randomUUID } = require('crypto');
+const db = require('../db/connection');
 
 const SALT_ROUNDS = 10;
 
@@ -27,14 +28,19 @@ const seedDefaultAdmin = async () => {
   }
 
   const username = process.env.DEFAULT_ADMIN_USERNAME || 'admin';
-  const existing = await User.findOne({ username }).lean();
-  if (existing) {
+  const existing = await db.query('SELECT 1 FROM users WHERE username = $1', [username]);
+  if (existing.rowCount) {
     return;
   }
 
   const password = process.env.DEFAULT_ADMIN_PASSWORD || 'admin123';
   const hashedPassword = await bcrypt.hash(password, SALT_ROUNDS);
-  await User.create({ username, password: hashedPassword, role: 'admin' });
+  await db.query('INSERT INTO users (user_id, username, password, role) VALUES ($1, $2, $3, $4)', [
+    randomUUID(),
+    username,
+    hashedPassword,
+    'admin',
+  ]);
 };
 
 /**
@@ -47,14 +53,17 @@ const seedDefaultAdmin = async () => {
  * @throws {Error} If username already exists
  */
 const createUser = async (username, password, role = 'user') => {
-  const existingUser = await User.findOne({ username }).lean();
-  if (existingUser) {
+  const existingUser = await db.query('SELECT 1 FROM users WHERE username = $1', [username]);
+  if (existingUser.rowCount) {
     throw new Error('Username already exists');
   }
 
   const hashedPassword = await bcrypt.hash(password, SALT_ROUNDS);
-  const user = await User.create({ username, password: hashedPassword, role });
-  return user.toSafeObject();
+  const result = await db.query(
+    'INSERT INTO users (user_id, username, password, role) VALUES ($1, $2, $3, $4) RETURNING user_id, username, role, created_at',
+    [randomUUID(), username, hashedPassword, role]
+  );
+  return toSafeObject(result.rows[0]);
 };
 
 /**
@@ -65,7 +74,11 @@ const createUser = async (username, password, role = 'user') => {
  * @returns {Promise<Object|null>} User object (without password) or null
  */
 const authenticateUser = async (username, password) => {
-  const user = await User.findOne({ username });
+  const result = await db.query(
+    'SELECT user_id, username, password, role, created_at FROM users WHERE username = $1',
+    [username]
+  );
+  const user = result.rows[0];
   if (!user) {
     return null;
   }
@@ -75,7 +88,7 @@ const authenticateUser = async (username, password) => {
     return null;
   }
 
-  return user.toSafeObject();
+  return toSafeObject(user);
 };
 
 /**
@@ -85,8 +98,11 @@ const authenticateUser = async (username, password) => {
  * @returns {Promise<Object|null>} User object (without password) or null
  */
 const getUserById = async (userId) => {
-  const user = await User.findOne({ userId });
-  return user ? user.toSafeObject() : null;
+  const result = await db.query(
+    'SELECT user_id, username, role, created_at FROM users WHERE user_id = $1',
+    [userId]
+  );
+  return result.rows[0] ? toSafeObject(result.rows[0]) : null;
 };
 
 /**
@@ -96,8 +112,11 @@ const getUserById = async (userId) => {
  * @returns {Promise<Object|null>} User object (without password) or null
  */
 const getUserByUsername = async (username) => {
-  const user = await User.findOne({ username });
-  return user ? user.toSafeObject() : null;
+  const result = await db.query(
+    'SELECT user_id, username, role, created_at FROM users WHERE username = $1',
+    [username]
+  );
+  return result.rows[0] ? toSafeObject(result.rows[0]) : null;
 };
 
 /**
@@ -106,8 +125,10 @@ const getUserByUsername = async (username) => {
  * @returns {Promise<Array>} Array of user objects (without passwords)
  */
 const getAllUsers = async () => {
-  const users = await User.find().sort({ createdAt: 1 });
-  return users.map((user) => user.toSafeObject());
+  const result = await db.query(
+    'SELECT user_id, username, role, created_at FROM users ORDER BY created_at ASC'
+  );
+  return result.rows.map(toSafeObject);
 };
 
 /**
@@ -117,8 +138,8 @@ const getAllUsers = async () => {
  * @returns {Promise<boolean>} True if a user was deleted, false otherwise
  */
 const deleteUser = async (userId) => {
-  const result = await User.deleteOne({ userId });
-  return result.deletedCount > 0;
+  const result = await db.query('DELETE FROM users WHERE user_id = $1', [userId]);
+  return result.rowCount > 0;
 };
 
 /**
@@ -129,8 +150,11 @@ const deleteUser = async (userId) => {
  * @returns {Promise<Object|null>} Updated user (without password) or null
  */
 const updateUserRole = async (userId, role) => {
-  const user = await User.findOneAndUpdate({ userId }, { role }, { new: true });
-  return user ? user.toSafeObject() : null;
+  const result = await db.query(
+    'UPDATE users SET role = $1 WHERE user_id = $2 RETURNING user_id, username, role, created_at',
+    [role, userId]
+  );
+  return result.rows[0] ? toSafeObject(result.rows[0]) : null;
 };
 
 /**
@@ -139,9 +163,16 @@ const updateUserRole = async (userId, role) => {
  * @returns {Promise<void>}
  */
 const clearUsers = async () => {
-  await User.deleteMany({});
+  await db.query('TRUNCATE TABLE users CASCADE');
   await seedDefaultAdmin();
 };
+
+const toSafeObject = (user) => ({
+  userId: user.user_id,
+  username: user.username,
+  role: user.role,
+  createdAt: new Date(user.created_at).toISOString(),
+});
 
 module.exports = {
   seedDefaultAdmin,

@@ -2,7 +2,7 @@
  * Colour-mode context
  *
  * Owns the light/dark choice for the whole app, persists it to localStorage
- * (defaulting to the mission-control dark theme), and exposes a toggle. The
+ * (defaulting to the light operations theme), and exposes a toggle. The
  * provider builds the MUI theme from the current mode and wraps children in
  * ThemeProvider + CssBaseline so a toggle instantly re-themes every surface.
  */
@@ -16,7 +16,7 @@ import { createAppTheme } from './index';
 
 const STORAGE_KEY = 'sentryfl-color-mode';
 
-const ColorModeContext = createContext({ mode: 'dark', toggle: () => {}, setMode: () => {} });
+const ColorModeContext = createContext({ mode: 'light', toggle: () => {}, setMode: () => {} });
 
 const readStoredMode = () => {
   try {
@@ -25,7 +25,7 @@ const readStoredMode = () => {
   } catch {
     /* localStorage unavailable (private mode / blocked) — fall back to default */
   }
-  return 'dark';
+  return 'light';
 };
 
 export function ColorModeProvider({ children }) {

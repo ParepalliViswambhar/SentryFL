@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en" style="background:#070c17">
+<html lang="en" style="background:#f3f5f2">
   <head>
     <meta charset="UTF-8" />
     <link
@@ -14,18 +14,17 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap"
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Manrope:wght@400;500;600;700;800&display=swap"
       rel="stylesheet"
     />
     <title>SentryFL — Federated Anomaly Detection</title>
     <script>
-      // Set the initial background before React mounts to avoid a light flash
-      // in dark mode (and vice-versa). Matches the ColorModeContext default.
+      // Set the initial background before React mounts to avoid a colour flash.
       (function () {
         try {
-          var mode = localStorage.getItem('sentryfl-color-mode') || 'dark';
+          var mode = localStorage.getItem('sentryfl-color-mode') || 'light';
           document.documentElement.setAttribute('data-color-mode', mode);
-          document.documentElement.style.background = mode === 'light' ? '#eef2f8' : '#070c17';
+          document.documentElement.style.background = mode === 'light' ? '#f3f5f2' : '#070c17';
         } catch (e) {
           /* ignore */
         }

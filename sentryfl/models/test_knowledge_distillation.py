@@ -32,11 +32,8 @@ try:
 except ImportError:
     TRANSFORMERS_AVAILABLE = False
 
-# Skip marker for tests that require transformers with PyTorch support
-requires_transformers = pytest.mark.skipif(
-    not TRANSFORMERS_AVAILABLE,
-    reason="Transformers with PyTorch support not available (requires PyTorch >= 2.4)"
-)
+# Transformer tests use the installed local Transformers implementation.
+requires_transformers = lambda test: test
 
 
 class TestStudentModel:

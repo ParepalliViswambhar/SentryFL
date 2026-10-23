@@ -13,8 +13,11 @@
 import { useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import { useDispatch, useSelector } from 'react-redux';
-import { Alert, Box, CircularProgress, Stack } from '@mui/material';
+import { Alert, Box, Button, CircularProgress, Stack } from '@mui/material';
 import ScienceIcon from '@mui/icons-material/Science';
+import DownloadIcon from '@mui/icons-material/Download';
+import { useState } from 'react';
+import apiClient from '../api/client';
 import {
   TrainingMetricsChart,
   CommunicationCostChart,
@@ -40,6 +43,7 @@ const ExperimentDetail = () => {
   const communicationMetrics = useSelector(selectCommunicationMetrics(id));
   const privacyMetrics = useSelector(selectPrivacyMetrics(id));
   const status = useSelector(selectExperimentsStatus);
+  const [downloadError, setDownloadError] = useState('');
 
   useEffect(() => {
     dispatch(fetchExperimentById(id));
@@ -58,14 +62,37 @@ const ExperimentDetail = () => {
   const { current, total } = roundsOf(experiment);
   const live = isLiveStatus(experiment.status);
 
+  const downloadModel = async () => {
+    setDownloadError('');
+    try {
+      const response = await apiClient.get(`/experiments/${id}/model`, { responseType: 'blob' });
+      const url = URL.createObjectURL(response.data);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `${id}-global-model.pt`;
+      anchor.click();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      setDownloadError(error.response?.data?.message || 'Global model is not available yet.');
+    }
+  };
+
   return (
     <Box>
       <PageHeader
         title={experiment.name || 'Experiment details'}
         subtitle={id}
         icon={<ScienceIcon />}
-        actions={<StatusChip status={experiment.status} />}
+        actions={(
+          <Stack direction="row" alignItems="center" gap={1}>
+            <Button variant="outlined" startIcon={<DownloadIcon />} onClick={downloadModel}>
+              Download global model
+            </Button>
+            <StatusChip status={experiment.status} />
+          </Stack>
+        )}
       />
+      {downloadError && <Alert severity="warning" sx={{ mb: 3 }}>{downloadError}</Alert>}
 
       {/* Live proof-of-life band: initializing / round counter / progress + elapsed heartbeat. */}
       <Panel sx={{ mb: 3 }}>

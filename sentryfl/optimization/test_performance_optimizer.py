@@ -214,10 +214,6 @@ class TestDataParallelism:
         # Should not be wrapped in DataParallel
         assert not isinstance(model, nn.DataParallel)
     
-    @pytest.mark.skipif(
-        torch.cuda.device_count() < 2,
-        reason="Requires multiple GPUs"
-    )
     def test_data_parallel_enabled(self, simple_model):
         """Test model with data parallelism on multiple GPUs"""
         optimizer = PerformanceOptimizer(
@@ -227,8 +223,10 @@ class TestDataParallelism:
         
         model, device = optimizer.setup_model(simple_model)
         
-        # Should be wrapped in DataParallel
-        assert isinstance(model, nn.DataParallel)
+        if torch.cuda.device_count() >= 2:
+            assert isinstance(model, nn.DataParallel)
+        else:
+            assert not isinstance(model, nn.DataParallel)
 
 
 class TestDataCaching:

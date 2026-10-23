@@ -468,7 +468,11 @@ class TestGPUMemoryCheck(unittest.TestCase):
     def test_insufficient_memory_returns_false_with_guidance(self):
         """Test insufficient GPU memory returns False with CPU fallback guidance"""
         if not torch.cuda.is_available():
-            self.skipTest("CUDA not available, skipping GPU memory test")
+            is_available, message = check_gpu_memory(required_bytes=1024 ** 4)
+            self.assertFalse(is_available)
+            self.assertIn("CUDA not available", message)
+            self.assertIn("CPU", message)
+            return
         
         # Request impossibly large amount (1 TB)
         required_bytes = 1024 ** 4

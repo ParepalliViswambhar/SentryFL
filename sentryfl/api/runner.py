@@ -1,6 +1,7 @@
 """Concurrent experiment lifecycle and metric streaming management."""
 
 import asyncio
+import io
 import logging
 import os
 import threading
@@ -38,6 +39,7 @@ class ExperimentRunner:
         self.experiment_id = experiment_id
         self.config = config
         self.trainer_factory = trainer_factory or build_trainer
+        self.trainer: Optional[MainTrainer] = None
         self.status = "pending"
         self.current_round = 0
         self.start_time: Optional[float] = None
@@ -77,6 +79,7 @@ class ExperimentRunner:
                 on_round_metrics=self._on_round_metrics,
                 stop_event=self.stop_event,
             )
+            self.trainer = trainer
             trainer.setup()
             trainer.train()
             if self.stop_event.is_set():
@@ -388,6 +391,26 @@ class ExperimentRunner:
             "rounds_recorded": len(history),
             "config": self.config.model_dump() if hasattr(self.config, "model_dump") else {},
         }
+
+    def get_model_artifact(self) -> bytes:
+        """Serialize the latest global model for a client download."""
+        if self.trainer is None:
+            raise RuntimeError("The experiment has not initialized a model")
+        if hasattr(self.trainer, "get_model_artifact"):
+            return self.trainer.get_model_artifact()
+
+        server = getattr(self.trainer, "aggregation_server", None)
+        if server is None:
+            raise RuntimeError("The global model is not available yet")
+        model = server.get_global_model()
+        payload = {
+            "experiment_id": self.experiment_id,
+            "config": self.config.model_dump() if hasattr(self.config, "model_dump") else {},
+            "state_dict": {name: tensor.detach().cpu() for name, tensor in model.state_dict().items()},
+        }
+        buffer = io.BytesIO()
+        torch.save(payload, buffer)
+        return buffer.getvalue()
 
 
 def _latest(metrics: Optional[List[Dict[str, Any]]], key: str) -> Optional[Any]:

@@ -26,6 +26,9 @@ class FakeTrainer:
                               "accuracy": 0.5}],
             })
 
+    def get_model_artifact(self):
+        return b"global-model-artifact"
+
 
 def runner_factory(experiment_id, config):
     return ExperimentRunner(experiment_id, config, trainer_factory=FakeTrainer)
@@ -84,6 +87,17 @@ def test_report_endpoint():
     assert body["experiment_id"] == experiment_id
     assert body["rounds_recorded"] == 3
     assert body["total_rounds"] == 3
+
+
+def test_global_model_download_endpoint():
+    client = TestClient(create_app(runner_factory))
+    experiment_id = client.post("/train", json={"num_rounds": 3}).json()["experiment_id"]
+
+    response = client.get(f"/train/{experiment_id}/model")
+
+    assert response.status_code == 200
+    assert response.content == b"global-model-artifact"
+    assert f"{experiment_id}-global-model.pt" in response.headers["content-disposition"]
 
 
 def test_pause_and_resume_endpoints():

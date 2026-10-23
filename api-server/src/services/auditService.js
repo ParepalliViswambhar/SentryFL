@@ -1,14 +1,15 @@
 /**
  * Audit Service
  *
- * Logs user actions to an append-only audit trail backed by MongoDB
- * (Mongoose). All read/write methods are asynchronous. Record shape matches
+ * Logs user actions to an append-only audit trail backed by PostgreSQL.
+ * All read/write methods are asynchronous. Record shape matches
  * the previous in-memory implementation so consumers need no field changes.
  *
  * Requirements: 38.10
  */
 
-const AuditLog = require('../db/models/AuditLog');
+const { randomUUID } = require('crypto');
+const db = require('../db/connection');
 
 /**
  * Log types for different user actions
@@ -46,19 +47,26 @@ const logAction = async ({
   success = true,
   errorMessage = null,
 }) => {
-  const doc = await AuditLog.create({
-    userId,
-    username,
-    action,
-    resourceType,
-    resourceId,
-    metadata,
-    ipAddress,
-    success,
-    errorMessage,
-  });
+  const result = await db.query(
+    `INSERT INTO audit_logs
+      (log_id, user_id, username, action, resource_type, resource_id, metadata, ip_address, success, error_message)
+     VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10)
+     RETURNING *`,
+    [
+      randomUUID(),
+      userId || null,
+      username || null,
+      action,
+      resourceType || null,
+      resourceId || null,
+      JSON.stringify(metadata),
+      ipAddress,
+      success,
+      errorMessage,
+    ]
+  );
 
-  const auditLog = doc.toPublicObject();
+  const auditLog = toPublicObject(result.rows[0]);
 
   // Log to console in development
   if (process.env.NODE_ENV !== 'production') {
@@ -90,29 +98,44 @@ const getAuditLogs = async ({
   limit = 100,
   offset = 0,
 } = {}) => {
-  const query = {};
-
-  if (userId) query.userId = userId;
-  if (action) query.action = action;
-  if (resourceType) query.resourceType = resourceType;
-  if (resourceId) query.resourceId = resourceId;
-
-  if (startDate || endDate) {
-    query.timestamp = {};
-    if (startDate) query.timestamp.$gte = new Date(startDate).toISOString();
-    if (endDate) query.timestamp.$lte = new Date(endDate).toISOString();
+  const filters = [];
+  const values = [];
+  const addFilter = (sql, value) => {
+    values.push(value);
+    filters.push(`${sql} $${values.length}`);
+  };
+  if (userId) {
+    addFilter('user_id =', userId);
   }
-
-  const total = await AuditLog.countDocuments(query);
-
-  // Sort by timestamp (most recent first), then paginate.
-  const docs = await AuditLog.find(query)
-    .sort({ timestamp: -1 })
-    .skip(offset)
-    .limit(limit);
+  if (action) {
+    addFilter('action =', action);
+  }
+  if (resourceType) {
+    addFilter('resource_type =', resourceType);
+  }
+  if (resourceId) {
+    addFilter('resource_id =', resourceId);
+  }
+  if (startDate) {
+    addFilter('timestamp >=', new Date(startDate));
+  }
+  if (endDate) {
+    addFilter('timestamp <=', new Date(endDate));
+  }
+  const where = filters.length ? `WHERE ${filters.join(' AND ')}` : '';
+  const countResult = await db.query(
+    `SELECT COUNT(*)::int AS total FROM audit_logs ${where}`,
+    values
+  );
+  const total = countResult.rows[0].total;
+  const dataValues = [...values, limit, offset];
+  const docs = await db.query(
+    `SELECT * FROM audit_logs ${where} ORDER BY timestamp DESC LIMIT $${dataValues.length - 1} OFFSET $${dataValues.length}`,
+    dataValues
+  );
 
   return {
-    logs: docs.map((doc) => doc.toPublicObject()),
+    logs: docs.rows.map(toPublicObject),
     total,
     limit,
     offset,
@@ -148,7 +171,7 @@ const getUserAuditLogs = (userId, limit = 100, offset = 0) =>
  * @returns {Promise<void>}
  */
 const clearAuditLogs = async () => {
-  await AuditLog.deleteMany({});
+  await db.query('TRUNCATE TABLE audit_logs');
 };
 
 /**
@@ -157,7 +180,8 @@ const clearAuditLogs = async () => {
  * @returns {Promise<Object>} Statistics about audit logs
  */
 const getAuditStats = async () => {
-  const docs = await AuditLog.find().sort({ timestamp: -1 });
+  const result = await db.query('SELECT * FROM audit_logs ORDER BY timestamp DESC');
+  const docs = result.rows;
 
   const actionCounts = {};
   const userCounts = {};
@@ -165,8 +189,11 @@ const getAuditStats = async () => {
   let failureCount = 0;
 
   docs.forEach((log) => {
-    if (log.success) successCount += 1;
-    else failureCount += 1;
+    if (log.success) {
+      successCount += 1;
+    } else {
+      failureCount += 1;
+    }
     actionCounts[log.action] = (actionCounts[log.action] || 0) + 1;
     userCounts[log.username] = (userCounts[log.username] || 0) + 1;
   });
@@ -178,10 +205,24 @@ const getAuditStats = async () => {
     actionCounts,
     userCounts,
     // docs are sorted newest-first
-    oldestLog: docs.length > 0 ? docs[docs.length - 1].timestamp : null,
-    newestLog: docs.length > 0 ? docs[0].timestamp : null,
+    oldestLog: docs.length > 0 ? toPublicObject(docs[docs.length - 1]).timestamp : null,
+    newestLog: docs.length > 0 ? toPublicObject(docs[0]).timestamp : null,
   };
 };
+
+const toPublicObject = (log) => ({
+  logId: log.log_id,
+  timestamp: new Date(log.timestamp).toISOString(),
+  userId: log.user_id,
+  username: log.username,
+  action: log.action,
+  resourceType: log.resource_type,
+  resourceId: log.resource_id,
+  metadata: log.metadata || {},
+  ipAddress: log.ip_address,
+  success: log.success,
+  errorMessage: log.error_message,
+});
 
 module.exports = {
   AuditActionType,

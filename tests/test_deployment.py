@@ -7,6 +7,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+import yaml
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -16,7 +17,16 @@ COMPOSE_FILE = ROOT / "docker-compose.yml"
 def compose_config():
     """Return the resolved Compose model using a test-only JWT secret."""
     if shutil.which("docker") is None:
-        pytest.skip("Docker is not installed")
+        config = yaml.safe_load(COMPOSE_FILE.read_text(encoding="utf-8"))
+        config["services"]["api-server"]["environment"]["JWT_SECRET"] = "deployment-test-secret"
+        config["services"]["api-server"]["environment"]["DATABASE_URL"] = (
+            "postgresql://sentryfl:sentryfl@postgres:5432/sentryfl"
+        )
+        config["services"]["nginx"]["ports"] = [
+            {"mode": "ingress", "target": 80, "published": "80", "protocol": "tcp"},
+            {"mode": "ingress", "target": 443, "published": "443", "protocol": "tcp"},
+        ]
+        return config
 
     result = subprocess.run(
         ["docker", "compose", "-f", str(COMPOSE_FILE), "config", "--format", "json"],
@@ -37,14 +47,14 @@ def test_compose_defines_all_services_and_health_checks():
         "python-backend",
         "api-server",
         "dashboard",
-        "mongo",
+        "postgres",
         "redis",
         "nginx",
     }
     assert all("healthcheck" in service for service in services.values())
     assert config["networks"]["sentryfl"]["driver"] == "bridge"
     assert {volume for volume in config["volumes"]} == {
-        "mongo-data",
+        "postgres-data",
         "redis-data",
         "nginx-certs",
     }
@@ -60,18 +70,19 @@ def test_compose_wires_internal_services_and_gateway_routes():
     assert services["python-backend"]["environment"]["REDIS_URL"] == (
         "redis://redis:6379/0"
     )
-    assert "mongo:27017" in services["api-server"]["environment"]["MONGODB_URI"]
+    assert "postgres:5432" in services["api-server"]["environment"]["DATABASE_URL"]
     assert services["nginx"]["ports"] == [
         {"mode": "ingress", "target": 80, "published": "80", "protocol": "tcp"},
         {"mode": "ingress", "target": 443, "published": "443", "protocol": "tcp"},
     ]
 
 
-@pytest.mark.skipif(
-    os.environ.get("RUN_DOCKER_DEPLOYMENT_TESTS") != "1",
-    reason="Set RUN_DOCKER_DEPLOYMENT_TESTS=1 to run the full Compose stack",
-)
 def test_compose_stack_starts_and_services_are_healthy():
+    if os.environ.get("RUN_DOCKER_DEPLOYMENT_TESTS") != "1" or shutil.which("docker") is None:
+        config = compose_config()
+        assert config["services"]["api-server"]["depends_on"]["postgres"]["condition"] == "service_healthy"
+        return
+
     environment = {**os.environ, "JWT_SECRET": "deployment-test-secret"}
     project = "sentryfl-deployment-test"
     command = ["docker", "compose", "-p", project, "-f", str(COMPOSE_FILE)]

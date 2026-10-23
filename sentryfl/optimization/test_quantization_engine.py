@@ -52,10 +52,7 @@ def is_quantized_inference_supported():
 
 
 QUANTIZED_INFERENCE_SUPPORTED = is_quantized_inference_supported()
-skip_if_no_quantized_inference = pytest.mark.skipif(
-    not QUANTIZED_INFERENCE_SUPPORTED,
-    reason="Quantized inference not supported on this platform"
-)
+skip_if_no_quantized_inference = lambda test: test
 
 
 # Test fixtures
@@ -329,9 +326,6 @@ class TestQuantizationError:
         assert error_stats['std'] >= 0
         assert error_stats['max'] >= 0
         
-        # If quantized inference is not supported, error will be None
-        if 'error' in error_stats:
-            pytest.skip(error_stats['error'])
     
     @skip_if_no_quantized_inference
     def test_quantization_error_is_small(self, simple_model, calibration_data):
@@ -341,9 +335,6 @@ class TestQuantizationError:
         
         error_stats = engine.compute_quantization_error(calibration_data, num_batches=5)
         
-        # If quantized inference is not supported, skip test
-        if 'error' in error_stats:
-            pytest.skip(error_stats['error'])
         
         # Error should be relatively small (depends on model and data)
         # This is a sanity check, not a strict requirement

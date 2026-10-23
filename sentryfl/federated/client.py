@@ -167,8 +167,13 @@ class FederatedClient:
         logger.info(f"Client {self.client_id}: Receiving global model parameters")
         
         try:
-            # Load parameters into model
-            model_state = self.model.state_dict()
+            # Opacus wraps the model in GradSampleModule. Its public state dict
+            # prefixes keys with `_module`, while the server broadcasts the
+            # original model keys. Load into the wrapped module itself so a
+            # DP-enabled client can receive the next round without reattaching
+            # or losing its privacy optimizer state.
+            target_model = getattr(self.model, '_module', self.model)
+            model_state = target_model.state_dict()
             
             # Validate parameter shapes
             for name, param in global_parameters.items():
@@ -186,7 +191,7 @@ class FederatedClient:
             
             # Update model state
             model_state.update(global_parameters)
-            self.model.load_state_dict(model_state)
+            target_model.load_state_dict(model_state)
             
             logger.info(
                 f"Client {self.client_id}: Successfully loaded "
