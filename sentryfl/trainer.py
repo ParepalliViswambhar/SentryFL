@@ -265,6 +265,23 @@ class MainTrainer:
         # Load raw data
         logger.info(f"Loading {dataset_name} dataset from {self.data_path}")
         data_dict = loader.load_data(self.data_path)
+        full_train_rows = len(data_dict['train'])
+        full_test_rows = len(data_dict['test'])
+        max_train_rows = int(self.data_config.get('max_train_rows') or full_train_rows)
+        max_test_rows = int(self.data_config.get('max_test_rows') or full_test_rows)
+        train_rows = min(full_train_rows, max_train_rows)
+        test_rows = min(full_test_rows, max_test_rows)
+        if train_rows < full_train_rows or test_rows < full_test_rows:
+            logger.info(
+                "Using bounded dataset sample: train=%s/%s rows, test=%s/%s rows",
+                train_rows, full_train_rows, test_rows, full_test_rows,
+            )
+            data_dict['train'] = data_dict['train'][:train_rows]
+            data_dict['test'] = data_dict['test'][:test_rows]
+            if 'train_labels' in data_dict:
+                data_dict['train_labels'] = data_dict['train_labels'][:train_rows]
+            if 'test_labels' in data_dict:
+                data_dict['test_labels'] = data_dict['test_labels'][:test_rows]
         
         # Get feature dimension
         self.feature_dim = loader.get_feature_dim()
@@ -372,12 +389,17 @@ class MainTrainer:
         self.split_provenance = {
             'strategy': 'temporal',
             'training_source_rows': len(train_data),
+            'training_source_rows_available': full_train_rows,
+            'training_sample_cap': max_train_rows,
             'training_source_ranges': {
                 'train': list(temporal_ranges['train']),
                 'val': list(temporal_ranges['val']),
                 'test_reserve': list(temporal_ranges['test']),
             },
             'held_out_test_source_rows': len(test_data),
+            'held_out_test_source_rows_available': full_test_rows,
+            'test_sample_cap': max_test_rows,
+            'sampling': 'deterministic_prefix',
             'window_size': self.data_config['window_size'],
             'stride': self.data_config['stride'],
             'window_counts': {

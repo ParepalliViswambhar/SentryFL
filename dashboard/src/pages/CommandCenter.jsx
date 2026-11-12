@@ -77,6 +77,7 @@ const MetricCard = ({ label, value, detail, icon, tone }) => (
 
 const RunCard = ({ experiment, onOpen, onPause, onResume, onStop }) => {
   const metrics = useSelector(selectTrainingMetrics(experiment.id));
+  const config = experiment.config || {};
   const { current, total } = roundsOf(experiment);
   const latest = metrics.at(-1);
   const lossValues = metrics.map((metric) => Number(metric.loss)).filter(Number.isFinite);
@@ -94,6 +95,9 @@ const RunCard = ({ experiment, onOpen, onPause, onResume, onStop }) => {
         </Box>
         <Chip size="small" color={tone} label={experiment.status || 'pending'} className="command-status" />
       </Box>
+      <Typography className="command-run-scope">
+        {config.dataset || 'SMD'} · {config.num_clients || config.federated?.num_clients || '—'} simulated clients · capped sample
+      </Typography>
       <Box className="command-progress-meta">
         <span>ROUND {current || 0} / {total || '—'}</span>
         <strong>{Math.round(progress)}%</strong>
@@ -164,6 +168,12 @@ export default function CommandCenter() {
         <MetricCard label="Active now" value={active.length} detail={`${summary.running} training in real time`} icon={<BoltRoundedIcon />} tone="violet" />
         <MetricCard label="Completed" value={summary.completed} detail="Runs with final artifacts" icon={<CheckCircleRoundedIcon />} tone="green" />
         <MetricCard label="Failed / stopped" value={summary.failed} detail="Needs operator attention" icon={<ErrorOutlineRoundedIcon />} tone="red" />
+      </Box>
+
+      <Box className="command-scope-strip" aria-label="Simulation scope">
+        <Box><Typography className="command-eyebrow">DATASETS AVAILABLE</Typography><strong>SMD + NSL-KDD</strong><small>same client simulator</small></Box>
+        <Box><Typography className="command-eyebrow">SIMULATION MODE</Typography><strong>Process-local clients</strong><small>raw records stay in shards</small></Box>
+        <Box><Typography className="command-eyebrow">BOUNDED SAMPLE</Typography><strong>5k train · 2k test</strong><small>caps can be changed per run</small></Box>
       </Box>
 
       <Box className="command-section-heading">

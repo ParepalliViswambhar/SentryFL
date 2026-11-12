@@ -24,6 +24,8 @@ class ExperimentConfig(BaseModel):
     # "synthetic" generates a zero-setup demo dataset; "real" uses downloaded
     # files under data_path/<dataset>/. Default demo so a fresh install runs.
     data_source: str = Field("synthetic", pattern="^(synthetic|real)$")
+    max_train_rows: int = Field(5000, ge=100)
+    max_test_rows: int = Field(2000, ge=100)
     device: Optional[str] = None
     config: Dict[str, Any] = Field(default_factory=dict)
 
@@ -31,6 +33,10 @@ class ExperimentConfig(BaseModel):
         """Convert API fields into ConfigurationSystem's nested shape."""
         result = dict(self.config)
         result.setdefault("data", {}).update({"dataset": self.dataset})
+        result.setdefault("data", {}).update({
+            "max_train_rows": self.max_train_rows,
+            "max_test_rows": self.max_test_rows,
+        })
         result.setdefault("training", {}).update({
             "num_rounds": self.num_rounds,
             "batch_size": self.batch_size,

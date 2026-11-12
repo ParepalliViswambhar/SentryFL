@@ -101,6 +101,11 @@ class ConfigurationSystem:
             'train_ratio': 0.7,
             'val_ratio': 0.15,
             'chunk_size': 4096,
+            # Keep simulator runs bounded on downloaded datasets. The loader
+            # still validates the source files, while training uses a
+            # deterministic prefix of each split.
+            'max_train_rows': 5000,
+            'max_test_rows': 2000,
         },
         'optimization': {
             'quantization_enabled': False,
@@ -139,6 +144,8 @@ class ConfigurationSystem:
         'data.train_ratio': {'type': float, 'min': 0.0, 'max': 1.0},
         'data.val_ratio': {'type': float, 'min': 0.0, 'max': 1.0},
         'data.chunk_size': {'type': int, 'min': 1},
+        'data.max_train_rows': {'type': int, 'min': 100},
+        'data.max_test_rows': {'type': int, 'min': 100},
         'experiment.checkpoint_interval': {'type': int, 'min': 1},
         'experiment.log_interval': {'type': int, 'min': 1},
         'experiment.seed': {'type': int, 'min': 0},
