@@ -216,3 +216,144 @@
   .command-metrics-grid, .command-runs-grid { grid-template-columns: 1fr; }
   .command-section-heading { align-items: flex-start; flex-direction: column; }
 }
+
+/* Public authentication surface */
+.login-page {
+  min-height: 100vh;
+  padding: clamp(1rem, 3vw, 3rem);
+  color: #e7eefb;
+  background:
+    radial-gradient(800px 650px at 8% 8%, rgba(34, 211, 238, 0.14), transparent 62%),
+    radial-gradient(700px 650px at 92% 92%, rgba(167, 139, 250, 0.13), transparent 64%),
+    #070c17;
+}
+
+.login-shell {
+  display: grid;
+  grid-template-columns: minmax(0, 1.08fr) minmax(380px, 0.92fr);
+  max-width: 1240px;
+  min-height: min(760px, calc(100vh - 6rem));
+  margin: 0 auto;
+  overflow: hidden;
+  border: 1px solid rgba(147, 167, 202, 0.14);
+  border-radius: 28px;
+  background: rgba(11, 19, 37, 0.65);
+  box-shadow: 0 30px 100px -42px rgba(0, 0, 0, 0.95), inset 0 1px rgba(255, 255, 255, 0.06);
+}
+
+.login-story {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+  padding: clamp(2rem, 5vw, 4.5rem);
+  overflow: hidden;
+  background:
+    linear-gradient(155deg, rgba(10, 28, 54, 0.96), rgba(11, 19, 37, 0.8)),
+    radial-gradient(circle at 20% 20%, rgba(34, 211, 238, 0.2), transparent 40%);
+}
+
+.login-story::before,
+.login-story::after {
+  position: absolute;
+  border: 1px solid rgba(103, 232, 249, 0.13);
+  border-radius: 50%;
+  content: '';
+  pointer-events: none;
+}
+
+.login-story::before { width: 520px; height: 520px; right: -210px; top: 21%; }
+.login-story::after { width: 760px; height: 760px; right: -330px; top: 6%; border-color: rgba(167, 139, 250, 0.1); }
+
+.login-brand,
+.login-story-copy,
+.login-feature-list,
+.login-telemetry-card { position: relative; z-index: 1; }
+
+.login-brand { display: flex; align-items: center; gap: 0.7rem; }
+.login-brand-mark,
+.login-panel-icon {
+  display: grid;
+  place-items: center;
+  color: #04121a;
+  background: linear-gradient(135deg, #67e8f9, #a78bfa);
+  box-shadow: 0 0 25px rgba(34, 211, 238, 0.28);
+}
+.login-brand-mark { width: 36px; height: 36px; border-radius: 11px; }
+.login-brand-mark svg { font-size: 1.25rem; }
+.login-brand-name { color: #f3f7ff; font-size: 1.12rem !important; font-weight: 800 !important; letter-spacing: -0.035em !important; }
+
+.login-story-copy { max-width: 540px; margin: auto 0 2.5rem; }
+.login-eyebrow,
+.login-telemetry-topline,
+.login-telemetry-topline span {
+  color: #8294b7;
+  font-family: var(--sentry-mono, 'JetBrains Mono', monospace) !important;
+  font-size: 0.65rem !important;
+  font-weight: 800 !important;
+  letter-spacing: 0.12em !important;
+  text-transform: uppercase;
+}
+.login-eyebrow { display: flex; align-items: center; gap: 0.55rem; margin-bottom: 1.25rem !important; }
+.login-eyebrow-dot { width: 7px; height: 7px; border-radius: 50%; background: #34d399; box-shadow: 0 0 0 4px rgba(52, 211, 153, 0.13), 0 0 16px rgba(52, 211, 153, 0.7); }
+.login-story-title { color: #f5f8ff; font-size: clamp(2.7rem, 5vw, 4.7rem) !important; font-weight: 850 !important; letter-spacing: -0.075em !important; line-height: 0.98 !important; }
+.login-story-title span { color: #67e8f9; }
+.login-story-description { max-width: 460px; margin-top: 1.3rem !important; color: #91a4c6; font-size: 1rem !important; line-height: 1.7 !important; }
+
+.login-feature-list { display: grid; gap: 1rem; max-width: 500px; }
+.login-feature { display: flex; align-items: flex-start; gap: 0.85rem; }
+.login-feature > svg { flex: 0 0 auto; margin-top: 0.1rem; color: #67e8f9; font-size: 1.25rem; }
+.login-feature-title { color: #e6efff; font-size: 0.8rem !important; font-weight: 750 !important; }
+.login-feature-copy { margin-top: 0.15rem !important; color: #7185a7; font-size: 0.73rem !important; }
+
+.login-telemetry-card { max-width: 500px; margin-top: 2.5rem; padding: 1rem 1.1rem; border: 1px solid rgba(147, 167, 202, 0.14); border-radius: 14px; background: rgba(7, 12, 23, 0.42); }
+.login-telemetry-topline { display: flex; justify-content: space-between; }
+.login-telemetry-topline span { display: flex; align-items: center; gap: 0.4rem; color: #6ee7b7; }
+.login-telemetry-topline i { width: 5px; height: 5px; border-radius: 50%; background: #34d399; }
+.login-telemetry-graph { display: flex; align-items: flex-end; gap: 5px; height: 58px; margin: 0.8rem 0 0.9rem; }
+.login-telemetry-graph span { flex: 1; min-height: 8px; border-radius: 4px 4px 1px 1px; background: linear-gradient(180deg, #67e8f9, rgba(34, 211, 238, 0.15)); }
+.login-telemetry-stats { display: flex; justify-content: space-between; }
+.login-telemetry-stats strong { display: block; color: #eff7ff; font: 700 0.85rem var(--sentry-mono, monospace); }
+.login-telemetry-stats small { color: #7185a7; font-size: 0.61rem; }
+
+.login-panel {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: clamp(2rem, 5vw, 5.2rem);
+  border: 0;
+  border-left: 1px solid rgba(147, 167, 202, 0.14);
+  border-radius: 0;
+  background: rgba(15, 24, 48, 0.76);
+}
+.login-panel-header { margin-bottom: 2rem; }
+.login-panel-icon { width: 44px; height: 44px; margin-bottom: 1.5rem; border-radius: 13px; }
+.login-panel-icon svg { font-size: 1.35rem; }
+.login-product-label { margin-bottom: 0.45rem !important; color: #67e8f9; font: 800 0.62rem var(--sentry-mono, monospace) !important; letter-spacing: 0.12em !important; text-transform: uppercase; }
+.login-panel-header h2 { color: #f3f7ff; font-size: 1.8rem !important; font-weight: 800 !important; letter-spacing: -0.05em !important; }
+.login-panel-header p { margin-top: 0.45rem; color: #8294b7; font-size: 0.82rem; }
+.login-panel .MuiTextField-root { margin-top: 0.8rem; margin-bottom: 0.2rem; }
+.login-panel .MuiOutlinedInput-root { background: rgba(7, 12, 23, 0.42); }
+.login-submit { min-height: 52px; margin-top: 1.45rem !important; font-size: 0.9rem !important; }
+.login-trust-row { display: flex; align-items: center; justify-content: center; gap: 0.4rem; margin-top: 1.35rem; color: #6d819f; }
+.login-trust-row svg { color: #34d399; font-size: 0.95rem; }
+.login-trust-row p { font-size: 0.68rem; }
+.login-register-prompt { margin-top: 2.5rem !important; color: #8294b7; text-align: center; font-size: 0.78rem !important; }
+.login-register-prompt a { color: #67e8f9; font-weight: 700; text-decoration: none; }
+.login-register-prompt a:hover { text-decoration: underline; }
+
+@media (max-width: 850px) {
+  .login-page { padding: 0; }
+  .login-shell { grid-template-columns: 1fr; min-height: 100vh; border: 0; border-radius: 0; }
+  .login-story { min-height: auto; padding: 1.5rem clamp(1.25rem, 6vw, 3rem) 2rem; }
+  .login-story-copy { margin: 4.5rem 0 2rem; }
+  .login-story-title { font-size: clamp(2.5rem, 10vw, 4rem) !important; }
+  .login-telemetry-card { display: none; }
+  .login-panel { padding: 2rem clamp(1.25rem, 6vw, 3rem) 3rem; border-top: 1px solid rgba(147, 167, 202, 0.14); border-left: 0; }
+}
+
+@media (max-width: 420px) {
+  .login-story-copy { margin-top: 3rem; }
+  .login-story-description { font-size: 0.9rem !important; }
+  .login-feature-copy { font-size: 0.68rem !important; }
+}

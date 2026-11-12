@@ -13,7 +13,6 @@ import {
   Typography,
   TextField,
   Button,
-  Container,
   Alert,
   Link,
   IconButton,
@@ -22,6 +21,11 @@ import {
 import LockIcon from '@mui/icons-material/LockOutlined';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import VisibilityOffIcon from '@mui/icons-material/VisibilityOff';
+import ArrowForwardRoundedIcon from '@mui/icons-material/ArrowForwardRounded';
+import AutoGraphRoundedIcon from '@mui/icons-material/AutoGraphRounded';
+import CheckCircleRoundedIcon from '@mui/icons-material/CheckCircleRounded';
+import HubRoundedIcon from '@mui/icons-material/HubRounded';
+import ShieldRoundedIcon from '@mui/icons-material/ShieldRounded';
 import { login } from '../store/slices/authSlice';
 
 const Login = () => {
@@ -94,46 +98,79 @@ const Login = () => {
   };
   
   return (
-    <Container maxWidth="sm">
-      <Box
-        sx={{
-          minHeight: '100vh',
-          display: 'flex',
-          flexDirection: 'column',
-          justifyContent: 'center',
-          alignItems: 'center',
-        }}
-      >
-        <Paper sx={{ p: 4, width: '100%' }}>
-          <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', mb: 3 }}>
-            <Box
-              sx={{
-                width: 48,
-                height: 48,
-                borderRadius: '50%',
-                bgcolor: 'primary.main',
-                display: 'flex',
-                justifyContent: 'center',
-                alignItems: 'center',
-                mb: 2,
-              }}
-            >
-              <LockIcon sx={{ color: 'white' }} />
-            </Box>
-            <Typography variant="h4" gutterBottom>
-              SentryFL
+    <Box className="login-page">
+      <Box className="login-shell">
+        <Box className="login-story">
+          <Box className="login-brand">
+            <Box className="login-brand-mark"><LockIcon /></Box>
+            <Typography className="login-brand-name">SentryFL</Typography>
+          </Box>
+
+          <Box className="login-story-copy">
+            <Typography className="login-eyebrow">
+              <span className="login-eyebrow-dot" />
+              Federated intelligence, secured
             </Typography>
-            <Typography variant="body2" color="text.secondary">
-              Federated Learning Dashboard
+            <Typography component="h1" className="login-story-title">
+              See every signal.
+              <br />
+              <span>Secure every round.</span>
+            </Typography>
+            <Typography className="login-story-description">
+              Orchestrate privacy-preserving learning across your network with
+              one calm, intelligent command center.
             </Typography>
           </Box>
-          
+
+          <Box className="login-feature-list">
+            <Box className="login-feature">
+              <HubRoundedIcon />
+              <Box>
+                <Typography className="login-feature-title">Distributed by design</Typography>
+                <Typography className="login-feature-copy">Coordinate clients without moving raw data.</Typography>
+              </Box>
+            </Box>
+            <Box className="login-feature">
+              <ShieldRoundedIcon />
+              <Box>
+                <Typography className="login-feature-title">Privacy you can measure</Typography>
+                <Typography className="login-feature-copy">Track budgets, aggregation, and risk in real time.</Typography>
+              </Box>
+            </Box>
+          </Box>
+
+          <Box className="login-telemetry-card">
+            <Box className="login-telemetry-topline">
+              <Typography>NETWORK TELEMETRY</Typography>
+              <span><i /> LIVE</span>
+            </Box>
+            <Box className="login-telemetry-graph">
+              {[34, 52, 43, 68, 61, 83, 74, 91, 79, 96].map((height, index) => (
+                <span key={index} style={{ height: `${height}%` }} />
+              ))}
+            </Box>
+            <Box className="login-telemetry-stats">
+              <Box><strong>12</strong><small>active clients</small></Box>
+              <Box><strong>98.4%</strong><small>model health</small></Box>
+              <Box><strong>0.08</strong><small>privacy budget</small></Box>
+            </Box>
+          </Box>
+        </Box>
+
+        <Paper component="main" className="login-panel">
+          <Box className="login-panel-header">
+            <Box className="login-panel-icon"><AutoGraphRoundedIcon /></Box>
+            <Typography className="login-product-label">Federated Learning Dashboard</Typography>
+            <Typography component="h2">Welcome back</Typography>
+            <Typography>Sign in to your federated learning workspace.</Typography>
+          </Box>
+
           {error && (
-            <Alert severity="error" sx={{ mb: 2 }}>
+            <Alert severity="error" sx={{ mb: 2.5 }}>
               {error}
             </Alert>
           )}
-          
+
           <form onSubmit={handleSubmit}>
             <TextField
               fullWidth
@@ -144,11 +181,12 @@ const Login = () => {
               margin="normal"
               required
               autoFocus
+              autoComplete="username"
               disabled={loading}
               error={Boolean(fieldErrors.username)}
               helperText={fieldErrors.username}
             />
-            
+
             <TextField
               fullWidth
               label="Password"
@@ -158,6 +196,7 @@ const Login = () => {
               onChange={handleChange}
               margin="normal"
               required
+              autoComplete="current-password"
               disabled={loading}
               error={Boolean(fieldErrors.password)}
               helperText={fieldErrors.password}
@@ -178,20 +217,26 @@ const Login = () => {
                 },
               }}
             />
-            
+
             <Button
               type="submit"
               fullWidth
               variant="contained"
               size="large"
-              sx={{ mt: 3 }}
+              className="login-submit"
+              endIcon={!loading && <ArrowForwardRoundedIcon />}
               disabled={loading}
             >
               {loading ? 'Signing in...' : 'Sign In'}
             </Button>
           </form>
 
-          <Typography variant="body2" align="center" sx={{ mt: 3 }}>
+          <Box className="login-trust-row">
+            <CheckCircleRoundedIcon />
+            <Typography>Encrypted session · Workspace protected</Typography>
+          </Box>
+
+          <Typography className="login-register-prompt">
             Don&apos;t have an account?{' '}
             <Link component={RouterLink} to="/register">
               Create one
@@ -199,7 +244,7 @@ const Login = () => {
           </Typography>
         </Paper>
       </Box>
-    </Container>
+    </Box>
   );
 };
 
