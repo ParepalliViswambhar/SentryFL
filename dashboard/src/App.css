@@ -1,42 +1,218 @@
 #root {
-  max-width: 1280px;
+  min-height: 100vh;
+}
+
+.command-page {
+  max-width: 1540px;
   margin: 0 auto;
-  padding: 2rem;
+  padding: clamp(0.25rem, 1vw, 1rem);
+}
+
+.command-hero {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 2rem;
+  padding: 1.25rem 0 2rem;
+}
+
+.command-kicker,
+.command-eyebrow {
+  color: #8294b7;
+  font-family: var(--sentry-mono, 'JetBrains Mono', monospace) !important;
+  font-size: 0.68rem !important;
+  font-weight: 800 !important;
+  letter-spacing: 0.13em !important;
+  text-transform: uppercase;
+}
+
+.command-kicker {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  margin-bottom: 0.7rem !important;
+}
+
+.command-live-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #34d399;
+  box-shadow: 0 0 0 4px rgba(52, 211, 153, 0.13), 0 0 16px rgba(52, 211, 153, 0.8);
+}
+
+.command-title {
+  font-size: clamp(2.15rem, 4vw, 3.8rem) !important;
+  font-weight: 850 !important;
+  letter-spacing: -0.065em !important;
+  line-height: 0.98 !important;
+  background: linear-gradient(110deg, #f3f7ff 12%, #9deafa 55%, #c4b5fd 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.command-subtitle {
+  max-width: 620px;
+  margin-top: 0.85rem !important;
+  color: #91a4c6;
+  font-size: 0.98rem !important;
+}
+
+.command-metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.85rem;
+  margin-bottom: 2.4rem;
+}
+
+.command-metric,
+.command-run-card,
+.command-empty,
+.command-table-shell {
+  background: linear-gradient(145deg, rgba(20, 32, 58, 0.82), rgba(11, 19, 37, 0.78));
+  border: 1px solid rgba(147, 167, 202, 0.14);
+  border-radius: 14px;
+  box-shadow: 0 20px 50px -35px rgba(0, 0, 0, 0.9), inset 0 1px rgba(255, 255, 255, 0.045);
+}
+
+.command-metric {
+  position: relative;
+  min-height: 142px;
+  padding: 1.15rem;
+  overflow: hidden;
+}
+
+.command-metric::after {
+  position: absolute;
+  right: -25px;
+  bottom: -45px;
+  width: 120px;
+  height: 120px;
+  border-radius: 50%;
+  content: '';
+  opacity: 0.13;
+  filter: blur(7px);
+}
+
+.command-metric-cyan::after { background: #22d3ee; }
+.command-metric-violet::after { background: #a78bfa; }
+.command-metric-green::after { background: #34d399; }
+.command-metric-red::after { background: #f87171; }
+
+.command-metric-icon {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+  display: grid;
+  place-items: center;
+  color: #80e7f7;
+}
+
+.command-metric-violet .command-metric-icon { color: #c4b5fd; }
+.command-metric-green .command-metric-icon { color: #6ee7b7; }
+.command-metric-red .command-metric-icon { color: #fca5a5; }
+
+.command-metric-value {
+  margin-top: 0.35rem !important;
+  color: #f4f7ff;
+  font-family: var(--sentry-mono, 'JetBrains Mono', monospace) !important;
+  font-size: 2.15rem !important;
+  font-weight: 700 !important;
+  letter-spacing: -0.08em !important;
+}
+
+.command-metric-detail,
+.command-section-copy {
+  color: #8294b7;
+  font-size: 0.78rem !important;
+}
+
+.command-section-heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1rem;
+  margin: 1.25rem 0 0.95rem;
+}
+
+.command-recent-heading { margin-top: 2.7rem; }
+
+.command-section-title {
+  color: #eff5ff;
+  font-size: 1.25rem !important;
+  font-weight: 750 !important;
+  letter-spacing: -0.025em !important;
+}
+
+.command-runs-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.85rem;
+}
+
+.command-run-card {
+  padding: 1.1rem;
+  transition: border-color 180ms ease, transform 180ms ease;
+}
+
+.command-run-card:hover {
+  border-color: rgba(34, 211, 238, 0.38);
+  transform: translateY(-2px);
+}
+
+.command-run-heading,
+.command-run-footer,
+.command-progress-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.command-run-name {
+  color: #eef4ff;
+  cursor: pointer;
+  font-weight: 750 !important;
+}
+
+.command-run-name:hover { color: #67e8f9; }
+
+.command-mono {
+  color: #617493;
+  font-family: var(--sentry-mono, 'JetBrains Mono', monospace) !important;
+  font-size: 0.63rem !important;
+}
+
+.command-status { text-transform: uppercase; font-size: 0.62rem !important; }
+.command-progress-meta { margin: 1.5rem 0 0.4rem; color: #7185a7; font: 700 0.62rem var(--sentry-mono, monospace); }
+.command-progress-meta strong { color: #dce8fa; }
+.command-run-footer { margin-top: 1rem; }
+.command-run-value { color: #e7eefb; font: 700 0.95rem var(--sentry-mono, monospace) !important; }
+.command-sparkline { width: 100px; height: 35px; color: #67e8f9; opacity: 0.9; }
+.command-sparkline-empty { color: #607496; font: 0.6rem var(--sentry-mono, monospace); }
+
+.command-empty {
+  display: grid;
+  justify-items: center;
+  gap: 0.7rem;
+  padding: 3.5rem 1rem;
+  color: #8294b7;
   text-align: center;
 }
 
-.logo {
-  height: 6em;
-  padding: 1.5em;
-  will-change: filter;
-  transition: filter 300ms;
-}
-.logo:hover {
-  filter: drop-shadow(0 0 2em #646cffaa);
-}
-.logo.react:hover {
-  filter: drop-shadow(0 0 2em #61dafbaa);
+.command-empty svg { color: #67e8f9; font-size: 2.4rem; }
+.command-empty h6 { color: #edf4ff; }
+.command-table-shell { overflow: hidden; min-height: 120px; }
+
+@media (max-width: 1100px) {
+  .command-metrics-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .command-runs-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
-@keyframes logo-spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-@media (prefers-reduced-motion: no-preference) {
-  a:nth-of-type(2) .logo {
-    animation: logo-spin infinite 20s linear;
-  }
-}
-
-.card {
-  padding: 2em;
-}
-
-.read-the-docs {
-  color: #888;
+@media (max-width: 700px) {
+  .command-page { padding: 0; }
+  .command-hero { align-items: stretch; flex-direction: column; padding-top: 0.5rem; }
+  .command-metrics-grid, .command-runs-grid { grid-template-columns: 1fr; }
+  .command-section-heading { align-items: flex-start; flex-direction: column; }
 }

@@ -16,6 +16,7 @@ body,
 
 body {
   margin: 0;
+  background: #070c17;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
@@ -23,6 +24,11 @@ body {
 
 #root {
   min-height: 100vh;
+}
+
+button,
+a {
+  -webkit-tap-highlight-color: transparent;
 }
 
 /* Pulsing halo used by live/running status indicators. */
