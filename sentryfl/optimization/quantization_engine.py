@@ -28,6 +28,8 @@ import torch.nn as nn
 from torch.utils.data import DataLoader
 import torch.quantization as quant
 
+from sentryfl.evaluation.research_reports import ResearchReport
+
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -525,6 +527,27 @@ class QuantizationEngine:
         
         # Save quantized model
         torch.save(self.quantized_model.state_dict(), path)
+
+    def write_metrics_report(self, path: str, *, dataset: str = "unspecified") -> str:
+        """Write measured FP32-vs-INT8 metrics using the common report schema."""
+        if self.quantization_metrics is None:
+            raise RuntimeError(
+                "No quantization metrics available. Run get_quantization_metrics() first."
+            )
+        report = ResearchReport(
+            experiment="quantization",
+            status="measured",
+            protocol={
+                "method": "INT8 post-training static quantization",
+                "dataset": dataset,
+                "communication_reduction_basis": "serialized model size",
+            },
+            results=self.quantization_metrics.__dict__,
+            limitations=[
+                "Communication reduction is model-size based, not a captured federated update trace."
+            ],
+        )
+        return report.write(path)
         logger.info(f"Quantized model saved to: {path}")
     
     def load_quantized_model(self, path: str, model_architecture: nn.Module):
