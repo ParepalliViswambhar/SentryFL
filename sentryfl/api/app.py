@@ -3,13 +3,22 @@
 import uuid
 from typing import Callable, Dict, Optional
 
-from fastapi import APIRouter, BackgroundTasks, FastAPI, HTTPException, Query, Response
+from fastapi import APIRouter, BackgroundTasks, FastAPI, Header, HTTPException, Query, Response
 
 from .runner import ExperimentRunner
-from .schemas import ExperimentConfig, ExperimentStatus
+from .remote_transport import RemoteClientRegistry, decode_update
+from .schemas import (
+    ExperimentConfig,
+    ExperimentStatus,
+    RemoteEnrollmentRequest,
+    RemoteUpdateRequest,
+)
 
 
-def create_app(runner_factory: Optional[Callable[..., ExperimentRunner]] = None) -> FastAPI:
+def create_app(
+    runner_factory: Optional[Callable[..., ExperimentRunner]] = None,
+    remote_enrollment_secret: Optional[str] = None,
+) -> FastAPI:
     application = FastAPI(
         title="SentryFL ML Backend",
         version="1.0.0",
@@ -17,6 +26,7 @@ def create_app(runner_factory: Optional[Callable[..., ExperimentRunner]] = None)
     )
     runners: Dict[str, ExperimentRunner] = {}
     factory = runner_factory or ExperimentRunner
+    remote_clients = RemoteClientRegistry(remote_enrollment_secret)
     router = APIRouter()
 
     @router.post("/train", response_model=ExperimentStatus, status_code=202)
@@ -104,6 +114,50 @@ def create_app(runner_factory: Optional[Callable[..., ExperimentRunner]] = None)
                 "Content-Disposition": f'attachment; filename="{experiment_id}-global-model.pt"',
             },
         )
+
+    @router.post("/train/{experiment_id}/clients/enroll")
+    async def enroll_remote_client(
+        experiment_id: str, request: RemoteEnrollmentRequest
+    ):
+        _get_runner(runners, experiment_id)
+        try:
+            token = remote_clients.enroll(
+                experiment_id, request.client_id, request.shared_secret
+            )
+        except RuntimeError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        except (PermissionError, ValueError) as exc:
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
+        return {"experiment_id": experiment_id, "client_id": request.client_id, "token": token}
+
+    @router.post("/train/{experiment_id}/clients/update")
+    async def submit_remote_update(
+        experiment_id: str,
+        request: RemoteUpdateRequest,
+        authorization: Optional[str] = Header(None),
+    ):
+        runner = _get_runner(runners, experiment_id)
+        token = authorization.removeprefix("Bearer ").strip() if authorization else ""
+        if not remote_clients.authorize(experiment_id, request.client_id, token):
+            raise HTTPException(status_code=401, detail="invalid remote client token")
+        server = getattr(getattr(runner, "trainer", None), "aggregation_server", None)
+        if server is None:
+            raise HTTPException(status_code=409, detail="aggregation server is not ready")
+        try:
+            update = decode_update(request.update_base64)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        accepted = server.collect_client_updates(
+            request.client_id, update, request.num_samples, request.metrics
+        )
+        if not accepted:
+            raise HTTPException(status_code=422, detail="update rejected by aggregation server")
+        return {
+            "experiment_id": experiment_id,
+            "client_id": request.client_id,
+            "accepted": True,
+            "pending_clients": len(server.pending_updates),
+        }
 
     @router.get("/health")
     async def health_check():

@@ -63,7 +63,8 @@ focused tests or existing integration tests:
   - Synthetic weighted-FedAvg aggregation visualizer with an explicitly
     incorrect unweighted negative control.
   - Authorized global-artifact/client-onboarding page that clearly states that
-    remote client enrollment is not implemented.
+    remote client enrollment is available only when explicitly enabled with a
+    server-side enrollment secret.
 - **Dashboard navigation and metric handling**: the new pages are protected by
   the existing authentication shell, and metric normalization supports privacy,
   communication, report, and live-event data without fabricating missing values.
@@ -79,12 +80,15 @@ physical multi-machine federated deployment.
   local VAE, only generated windows are pooled, and a smaller student is trained
   from the global teacher. This path is not enabled by default and does not
   replace the federated global model.
-- The web workflow remains a process-local federated simulator. Independent
-  remote client enrollment and authenticated update submission are not
-  implemented.
-- MIA utilities and privacy accounting are available, but a complete
-  publication-grade privacy/utility sweep still requires executed experiments
-  with recorded results.
+- The web workflow remains a process-local federated simulator by default.
+  An additive remote transport supports experiment-scoped enrollment and
+  authenticated bearer-token update submission when
+  `SENTRYFL_REMOTE_ENROLLMENT_SECRET` is configured. Tokens are process-local,
+  bounded, and expire; this is not a production identity provider.
+- `scripts/run_privacy_evaluation.py` produces a versioned report separating
+  DP-FedAvg client/silo/entity privacy from record-level DP-SGD and reports
+  empirical MIA evidence separately from formal accounting. Replace its
+  synthetic probe with held-out dataset runs for publication evidence.
 - INT8 post-training quantization is available, but completed FP32-vs-INT8
   accuracy/latency/payload tables still require measured experiment artifacts.
 - Scaling utilities do not prove physical deployment performance at 500 clients.

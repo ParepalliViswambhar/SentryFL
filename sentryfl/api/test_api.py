@@ -1,8 +1,11 @@
 """Integration tests for the SentryFL Python backend API."""
 
 import asyncio
+import base64
+import io
 
 from fastapi.testclient import TestClient
+import torch
 
 from sentryfl.api.app import create_app
 from sentryfl.api.runner import ExperimentRunner
@@ -100,6 +103,51 @@ def test_global_model_download_endpoint():
     assert response.status_code == 200
     assert response.content == b"global-model-artifact"
     assert f"{experiment_id}-global-model.pt" in response.headers["content-disposition"]
+
+
+def test_remote_enrollment_is_disabled_without_secret():
+    client = TestClient(create_app(runner_factory))
+    experiment_id = client.post("/train", json={"num_rounds": 3}).json()["experiment_id"]
+    response = client.post(
+        f"/train/{experiment_id}/clients/enroll",
+        json={"client_id": "client-1", "shared_secret": "secret"},
+    )
+    assert response.status_code == 503
+
+
+def test_remote_client_enrollment_and_update():
+    class RemoteTrainer(FakeTrainer):
+        def __init__(self, config, on_round_metrics, stop_event):
+            super().__init__(config, on_round_metrics, stop_event)
+            self.aggregation_server = type("Server", (), {})()
+            self.aggregation_server.pending_updates = {}
+
+            def collect(client_id, parameters, num_samples, metrics):
+                self.aggregation_server.pending_updates[client_id] = parameters
+                return True
+
+            self.aggregation_server.collect_client_updates = collect
+
+    def remote_factory(experiment_id, config):
+        return ExperimentRunner(experiment_id, config, trainer_factory=RemoteTrainer)
+
+    client = TestClient(create_app(remote_factory, remote_enrollment_secret="secret"))
+    experiment_id = client.post("/train", json={"num_rounds": 3}).json()["experiment_id"]
+    enrolled = client.post(
+        f"/train/{experiment_id}/clients/enroll",
+        json={"client_id": "client-1", "shared_secret": "secret"},
+    )
+    assert enrolled.status_code == 200
+    buffer = io.BytesIO()
+    torch.save({"weight": torch.ones(2)}, buffer)
+    update = base64.b64encode(buffer.getvalue()).decode("ascii")
+    submitted = client.post(
+        f"/train/{experiment_id}/clients/update",
+        headers={"Authorization": f"Bearer {enrolled.json()['token']}"},
+        json={"client_id": "client-1", "num_samples": 2, "update_base64": update},
+    )
+    assert submitted.status_code == 200
+    assert submitted.json()["accepted"] is True
 
 
 def test_pause_and_resume_endpoints():

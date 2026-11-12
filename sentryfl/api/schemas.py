@@ -70,6 +70,18 @@ class ExperimentStatus(BaseModel):
     error: Optional[str] = None
 
 
+class RemoteEnrollmentRequest(BaseModel):
+    client_id: str = Field(..., min_length=1, max_length=128)
+    shared_secret: str = Field(..., min_length=1)
+
+
+class RemoteUpdateRequest(BaseModel):
+    client_id: str = Field(..., min_length=1, max_length=128)
+    num_samples: int = Field(..., gt=0)
+    update_base64: str = Field(..., min_length=1)
+    metrics: Dict[str, Any] = Field(default_factory=dict)
+
+
 class TrainingMetrics(BaseModel):
     experiment_id: str
     round_number: int

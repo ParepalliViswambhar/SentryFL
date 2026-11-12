@@ -98,3 +98,9 @@ evaluation:
   threshold_split: "val"  # v2: fit threshold on held-out val (never test); "test_oracle" = opt-in upper bound
   save_predictions: true
   save_plots: true
+
+remote_clients:
+  # Disabled unless the server is started with SENTRYFL_REMOTE_ENROLLMENT_SECRET.
+  # Remote updates are authenticated with short-lived process-local bearer tokens.
+  enabled: false
+  max_update_bytes: 67108864
