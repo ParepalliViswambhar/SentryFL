@@ -171,7 +171,7 @@ const Layout = () => {
               onClick={isMobile ? handleDrawerToggle : undefined}
             >
               <ListItemIcon sx={{ minWidth: 40 }}>{item.icon}</ListItemIcon>
-              <ListItemText primary={item.text} primaryTypographyProps={{ fontWeight: 600 }} />
+              <ListItemText primary={item.text} sx={{ '& .MuiListItemText-primary': { fontWeight: 600 } }} />
               {item.path === '/experiments' && activeExperiments.length > 0 && (
                 <Badge
                   color="primary"

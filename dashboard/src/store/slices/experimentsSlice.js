@@ -10,7 +10,7 @@
  * @module slices/experimentsSlice
  */
 
-import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
+import { createSlice, createAsyncThunk, createSelector } from '@reduxjs/toolkit';
 import apiClient from '../../api/client';
 import { ACTIVE_STATUSES, TERMINAL_STATUSES } from '../../utils/status';
 
@@ -528,7 +528,9 @@ export const selectRunningExperiments = (state) =>
  * a just-created experiment is 'pending' before its first round lands, and the
  * user still needs to see that it exists and is spinning up.
  */
-export const selectActiveExperiments = (state) =>
-  state.experiments.list.filter((exp) => ACTIVE_STATUSES.includes(exp.status));
+export const selectActiveExperiments = createSelector(
+  [selectAllExperiments],
+  (experiments) => experiments.filter((exp) => ACTIVE_STATUSES.includes(exp.status)),
+);
 
 export default experimentsSlice.reducer;

@@ -81,9 +81,9 @@ export function ConnectionPill({ status = 'disconnected', sx }) {
   return (
     <Stack
       direction="row"
-      alignItems="center"
-      gap={0.75}
       sx={{
+        alignItems: 'center',
+        gap: 0.75,
         px: 1,
         py: 0.375,
         borderRadius: 999,
