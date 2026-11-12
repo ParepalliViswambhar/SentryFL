@@ -36,6 +36,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from sentryfl.data.dataset_loader import FederatedDataPartitioner
 from sentryfl.federated.client import FederatedClient
 from sentryfl.federated.server import AggregationServer
+from sentryfl.evaluation.research_reports import ResearchReport
 
 logger = logging.getLogger(__name__)
 
@@ -619,6 +620,35 @@ class ScalingEvaluator:
         
         self.comparison_results = comparison
         return comparison
+
+    def write_report(self, path: str) -> str:
+        """Write completed scaling measurements using the common report schema."""
+        if self.comparison_results is not None:
+            results = self.comparison_results.to_dict()
+            protocol = {
+                "client_counts": self.client_counts,
+                "comparison": "parameter-efficient vs full-model",
+            }
+        elif self.scaling_results:
+            results = {
+                str(client_count): metrics.to_dict()
+                for client_count, metrics in self.scaling_results.items()
+            }
+            protocol = {"client_counts": self.client_counts}
+        else:
+            raise RuntimeError(
+                "No scaling results available. Run an evaluation before writing a report."
+            )
+
+        return ResearchReport(
+            experiment="client_scaling",
+            status="measured",
+            protocol=protocol,
+            results=results,
+            limitations=[
+                "Results are process-local simulation measurements, not multi-host deployment evidence."
+            ],
+        ).write(path)
     
     def plot_communication_efficiency(
         self,
