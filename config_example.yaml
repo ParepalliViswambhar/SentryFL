@@ -74,16 +74,23 @@ parameter_efficiency:
   # Legacy ADMS options (used when method == "adms"):
   adms_enabled: false
   selection_ratio: 0.05  # 5% of parameters
+  # Optional client-local PPDS generation for post-training distillation.
   ppds_enabled: false
+  ppds_samples_per_client: 32
+  ppds_epochs: 5
+  ppds_latent_dim: 16
+  ppds_beta: 0.001
 
 optimization:
   quantization_enabled: false
   quantization_dtype: "int8"
   quantization_calibration_batches: 10  # Training batches used for post-training INT8 calibration
-  # Unsupported until wired end-to-end; enabling it fails configuration validation.
   knowledge_distillation_enabled: false
   distillation_temperature: 3.0
   distillation_alpha: 0.5
+  distillation_epochs: 5
+  distillation_hidden_dim: 256
+  distillation_num_layers: 2
 
 evaluation:
   metrics: ["f1", "auc_roc", "auc_pr", "precision", "recall", "pa_f1", "affiliation"]

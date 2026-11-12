@@ -26,6 +26,7 @@ import numpy as np
 
 from sentryfl.data.dataset_loader import SMDDatasetLoader, NSLKDDDatasetLoader, FederatedDataPartitioner
 from sentryfl.data.preprocessor import TimeSeriesPreprocessor
+from sentryfl.data.ppds import generate_pooled_synthetic_windows
 from sentryfl.federated.client import FederatedClient
 from sentryfl.federated.server import AggregationServer
 from sentryfl.federated.adms import ADMSModule
@@ -41,6 +42,7 @@ from sentryfl.utils.exceptions import MemoryError as SentryFLMemoryError
 from sentryfl.utils.reproducibility import ReproducibilityManager
 from sentryfl.utils.manifest import build_manifest, sha256_json
 from sentryfl.optimization.quantization_engine import QuantizationEngine
+from sentryfl.models.knowledge_distillation import KnowledgeDistillationModule
 
 # Configure logging
 logging.basicConfig(
@@ -186,6 +188,7 @@ class MainTrainer:
         self.split_provenance: Dict[str, Any] = {}
         self.manifest_path: Optional[str] = None
         self.result_report_path: Optional[str] = None
+        self.distillation_report: Optional[Dict[str, Any]] = None
         
         logger.info(f"MainTrainer initialized with device={device}")
     
@@ -1066,6 +1069,7 @@ class MainTrainer:
         with open(final_metrics_path, 'w') as f:
             json.dump(final_metrics.to_dict(), f, indent=2)
 
+        self._run_optional_distillation()
         self._write_result_report(final_metrics.to_dict())
         
         # Generate and save plots if requested
@@ -1093,6 +1097,85 @@ class MainTrainer:
         logger.info("=" * 80)
         logger.info("EXPERIMENT COMPLETE")
         logger.info("=" * 80)
+
+    def _run_optional_distillation(self) -> None:
+        """Run client-local PPDS followed by teacher-to-student distillation."""
+        peft = self.param_efficiency_config
+        optimization = self.optimization_config
+        if not (
+            peft.get('ppds_enabled', False)
+            and optimization.get('knowledge_distillation_enabled', False)
+        ):
+            return
+        if not self.clients:
+            raise RuntimeError("PPDS/KD requires initialized federated clients")
+
+        client_windows = [client.local_data[0].detach().cpu() for client in self.clients]
+        synthetic, ppds_metadata = generate_pooled_synthetic_windows(
+            client_windows,
+            samples_per_client=peft.get('ppds_samples_per_client', 32),
+            epochs=peft.get('ppds_epochs', 5),
+            latent_dim=peft.get('ppds_latent_dim', 16),
+            batch_size=self.training_config['batch_size'],
+            beta=peft.get('ppds_beta', 0.001),
+            device=self.device,
+        )
+        teacher = self.aggregation_server.get_global_model()
+        teacher.eval()
+        with torch.no_grad():
+            pseudo_labels = (torch.sigmoid(teacher(synthetic.to(self.device)).detach().cpu()) >= 0.5).float()
+        student_data = TensorDataset(synthetic, pseudo_labels)
+        student_loader = DataLoader(
+            student_data,
+            batch_size=self.training_config['batch_size'],
+            shuffle=True,
+        )
+        distiller = KnowledgeDistillationModule(
+            teacher_model=teacher,
+            input_dim=synthetic.shape[-1],
+            student_hidden_dim=optimization.get('distillation_hidden_dim', 256),
+            student_num_layers=optimization.get('distillation_num_layers', 2),
+            temperature=optimization.get('distillation_temperature', 3.0),
+            alpha=optimization.get('distillation_alpha', 0.5),
+            device=self.device,
+        )
+        optimizer = torch.optim.Adam(
+            distiller.student_model.parameters(), lr=self.training_config['learning_rate']
+        )
+        history = distiller.train_student(
+            student_loader,
+            optimizer,
+            num_epochs=optimization.get('distillation_epochs', 5),
+        )
+        output_dir = Path(self.experiment_config['output_dir'])
+        student_path = output_dir / 'distilled_student.pt'
+        torch.save(
+            {
+                'state_dict': distiller.student_model.state_dict(),
+                'input_shape': list(synthetic.shape[1:]),
+                'teacher_model': teacher.__class__.__name__,
+                'config': {
+                    'temperature': distiller.temperature,
+                    'alpha': distiller.alpha,
+                },
+            },
+            student_path,
+        )
+        self.distillation_report = {
+            'status': 'measured',
+            'ppds': {
+                'clients': len(ppds_metadata),
+                'synthetic_samples': len(synthetic),
+                'client_reports': ppds_metadata,
+            },
+            'student': {
+                'artifact': str(student_path),
+                'teacher_parameters': sum(p.numel() for p in teacher.parameters()),
+                'student_parameters': distiller.student_model.get_total_parameters(),
+                'size_reduction_percentage': distiller.size_reduction_percentage,
+                'history': history,
+            },
+        }
 
     def _write_result_report(self, metrics: Dict[str, Any]) -> None:
         """Write the machine-readable evidence and limitations report."""
@@ -1169,13 +1252,25 @@ class MainTrainer:
                 },
                 {
                     'component': 'knowledge_distillation',
-                    'status': 'unsupported',
-                    'source': 'configuration_rejected_when_enabled',
+                    'status': (
+                        self.distillation_report['status']
+                        if self.distillation_report else 'unsupported'
+                    ),
+                    'source': (
+                        'client-local PPDS and teacher/student distillation'
+                        if self.distillation_report else 'disabled in configuration'
+                    ),
                 },
                 {
                     'component': 'ppds',
-                    'status': 'unsupported',
-                    'source': 'configuration_rejected_when_enabled',
+                    'status': (
+                        self.distillation_report['status']
+                        if self.distillation_report else 'unsupported'
+                    ),
+                    'source': (
+                        'client-local VAE generation'
+                        if self.distillation_report else 'disabled in configuration'
+                    ),
                 },
             ],
             'limitations': [
@@ -1194,6 +1289,7 @@ class MainTrainer:
                     'disjoint attack-train and attack-test partitions.'
                 ),
             },
+            'distillation': self.distillation_report,
             'metrics': metrics,
         }
         output_dir = Path(self.experiment_config['output_dir'])

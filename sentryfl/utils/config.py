@@ -88,6 +88,10 @@ class ConfigurationSystem:
             'adms_enabled': True,
             'selection_ratio': 0.05,
             'ppds_enabled': False,
+            'ppds_samples_per_client': 32,
+            'ppds_epochs': 5,
+            'ppds_latent_dim': 16,
+            'ppds_beta': 0.001,
         },
         'data': {
             'dataset': 'SMD',  # 'SMD' or 'NSL-KDD'
@@ -104,6 +108,9 @@ class ConfigurationSystem:
             'knowledge_distillation_enabled': False,
             'distillation_temperature': 3.0,
             'distillation_alpha': 0.5,
+            'distillation_epochs': 5,
+            'distillation_hidden_dim': 256,
+            'distillation_num_layers': 2,
         },
         'experiment': {
             'name': 'default_experiment',
@@ -136,8 +143,15 @@ class ConfigurationSystem:
         'experiment.log_interval': {'type': int, 'min': 1},
         'experiment.seed': {'type': int, 'min': 0},
         'parameter_efficiency.selection_ratio': {'type': float, 'min': 0.0, 'max': 1.0},
+        'parameter_efficiency.ppds_samples_per_client': {'type': int, 'min': 1},
+        'parameter_efficiency.ppds_epochs': {'type': int, 'min': 1},
+        'parameter_efficiency.ppds_latent_dim': {'type': int, 'min': 1},
+        'parameter_efficiency.ppds_beta': {'type': float, 'min': 0.0},
         'optimization.distillation_temperature': {'type': float, 'min': 0.0, 'exclusive_min': True},
         'optimization.distillation_alpha': {'type': float, 'min': 0.0, 'max': 1.0},
+        'optimization.distillation_epochs': {'type': int, 'min': 1},
+        'optimization.distillation_hidden_dim': {'type': int, 'min': 1},
+        'optimization.distillation_num_layers': {'type': int, 'min': 1},
         'evaluation.anomaly_threshold': {'type': float, 'min': 0.0, 'max': 1.0},
     }
     
@@ -398,19 +412,6 @@ class ConfigurationSystem:
             if self.config['privacy']['delta'] is None:
                 errors.append("'privacy.delta' must be specified when privacy is enabled")
 
-        # Explicitly reject experimental flags that are not wired through the
-        # training path. A silently ignored PPDS/KD setting would produce a
-        # success-shaped result with unsupported claims.
-        if self.config['parameter_efficiency'].get('ppds_enabled', False):
-            errors.append(
-                "'parameter_efficiency.ppds_enabled' is unsupported: PPDS/VAE "
-                "is not implemented end-to-end"
-            )
-        if self.config['optimization'].get('knowledge_distillation_enabled', False):
-            errors.append(
-                "'optimization.knowledge_distillation_enabled' is unsupported: "
-                "knowledge distillation is not wired into MainTrainer"
-            )
         
         # Validate dataset choice
         valid_datasets = ['SMD', 'NSL-KDD']

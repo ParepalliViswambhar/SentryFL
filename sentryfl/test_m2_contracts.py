@@ -8,16 +8,15 @@ from sentryfl.utils.config import ConfigurationError, ConfigurationSystem
 from sentryfl.trainer import MainTrainer
 
 
-def test_unsupported_ppds_and_kd_fail_explicitly():
-    with pytest.raises(ConfigurationError, match="ppds_enabled.*unsupported"):
-        ConfigurationSystem.from_dict(
-            {"parameter_efficiency": {"ppds_enabled": True}}
-        )
-
-    with pytest.raises(ConfigurationError, match="knowledge_distillation_enabled.*unsupported"):
-        ConfigurationSystem.from_dict(
-            {"optimization": {"knowledge_distillation_enabled": True}}
-        )
+def test_ppds_and_kd_configuration_is_supported():
+    config = ConfigurationSystem.from_dict(
+        {
+            "parameter_efficiency": {"ppds_enabled": True},
+            "optimization": {"knowledge_distillation_enabled": True},
+        }
+    )
+    assert config.get_section("parameter_efficiency")["ppds_enabled"] is True
+    assert config.get_section("optimization")["knowledge_distillation_enabled"] is True
 
 
 def test_iter_windows_is_bounded_and_matches_materialized_windows():

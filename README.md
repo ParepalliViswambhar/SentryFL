@@ -74,9 +74,11 @@ physical multi-machine federated deployment.
 
 ### Deliberately not claimed as complete
 
-- PPDS/VAE synthetic-data generation is not implemented; knowledge distillation
-  remains unsupported in the main trainer and must not be enabled as if it were
-  active.
+- PPDS/VAE synthetic-data generation and knowledge distillation are now
+  available as an optional post-training path. Each client trains a bounded
+  local VAE, only generated windows are pooled, and a smaller student is trained
+  from the global teacher. This path is not enabled by default and does not
+  replace the federated global model.
 - The web workflow remains a process-local federated simulator. Independent
   remote client enrollment and authenticated update submission are not
   implemented.
