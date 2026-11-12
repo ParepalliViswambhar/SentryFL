@@ -4,7 +4,7 @@
 |---|---|---:|---:|---|---|
 | R-001 | Active PyTorch is CPU-only while a Quadro T2000 is visible | High | High | Provision/test a compatible CUDA environment; retain CPU mode and measure it honestly | M1 |
 | R-002 | DP-FedAvg privacy unit is client/silo, while datasets lack natural users | Critical | High | Approve adjacency statement and never call it record/user privacy without evidence | M0/M4 |
-| R-003 | PPDS/VAE is absent and KD flag is not wired | High | High | Implement end-to-end or remove from enabled claims | M0/M2 |
+| R-003 | PPDS/KD utility and privacy impact are not yet benchmarked | High | Medium | Run held-out student evaluation and document generated-data limitations | M2/M8 |
 | R-004 | In-process federation may be mistaken for deployment privacy/isolation | Critical | High | Label simulation; add remote protocol only if approved | M0/M7 |
 | R-005 | NSL-KDD sequence order can create artificial temporal claims | High | High | Predeclare construction and label results as constructed sequences | M0/M1 |
 | R-006 | ADMS zeroed gradients do not imply sparse wire reduction | High | High | Measure serialized dense bytes; compare FFA-LoRA and true sparse transport separately | M3 |

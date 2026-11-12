@@ -45,7 +45,7 @@ Priorities: **P0** mandatory for a valid core result; **P1** required for the fu
 | REQ-016 | User, client, experiment, artifact, and administrative actions shall be isolated and audited. | P0 | M6 | Existing auth | Owner/admin negative tests and audit assertions |
 | REQ-017 | The aggregation visualizer shall compare correct weighted aggregation with an explicitly incorrect synthetic scenario. | P2 | M6 | REQ-007 | Formula/weight/norm display test |
 | REQ-018 | The streaming demo shall use the actual inference path, generated labelled anomalies, and separate ground truth from predictions. | P2 | M7 | Model inference | Reset/pause/speed and prediction-vs-ground-truth test |
-| REQ-019 | PPDS/KD shall either be implemented end-to-end with evidence or be removed from enabled claims and fail clearly when configured. | P1 | M2/M3 | Architecture decision | Configuration behavior test and report review |
+| REQ-019 | Optional PPDS/KD shall train client-local bounded generators, pool generated windows without raw-record release, and produce a versioned student artifact. | P1 | M2/M3 | REQ-004, REQ-006 | PPDS shape/provenance tests, student artifact test, held-out utility report |
 | REQ-020 | Reports shall distinguish implemented, measured, simulated, experimentally unverified, and unsupported behavior. | P0 | All | REQ-001 | Report schema and review checklist |
 
 ## 4. Non-functional requirements

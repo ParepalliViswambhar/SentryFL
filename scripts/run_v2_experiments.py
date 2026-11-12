@@ -25,13 +25,19 @@ Usage:
 import argparse
 import json
 import os
+import sys
 from pathlib import Path
 
 import torch
 
+# Support both ``python -m scripts.run_v2_experiments`` and direct execution.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
 # Deterministic, offline-friendly defaults.
 os.environ.setdefault("HF_HUB_OFFLINE", "1")
 os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
+
+from sentryfl.evaluation.research_reports import wrap_result
 
 
 # --------------------------------------------------------------------------- E4
@@ -211,6 +217,15 @@ def main():
         out_dir.mkdir(parents=True, exist_ok=True)
         out_path = out_dir / "v2_experiments.json"
         out_path.write_text(json.dumps(results, indent=2))
+        for experiment, result in results.items():
+            limitations = []
+            if result.get("status") in {"scaffold", "skipped"}:
+                limitations.append("This result is not a completed measured benchmark.")
+            wrap_result(
+                result,
+                protocol={"runner": "scripts.run_v2_experiments", "experiment": experiment},
+                limitations=limitations,
+            ).write(out_dir / f"{experiment.lower()}_report.json")
         print(f"\nSaved results to {out_path}")
 
 
