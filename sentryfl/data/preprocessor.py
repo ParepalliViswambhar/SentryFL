@@ -10,7 +10,7 @@ This module provides:
 **Validates Requirements:** 1.4, 1.5, 1.6, 1.7, 1.8
 """
 
-from typing import Dict, Tuple, Optional
+from typing import Any, Dict, Iterator, Tuple, Optional
 import numpy as np
 from sklearn.preprocessing import StandardScaler
 import joblib
@@ -58,6 +58,7 @@ class TimeSeriesPreprocessor:
         self.normalize = normalize
         self.scaler = StandardScaler() if normalize else None
         self._is_fitted = False
+        self._last_split_metadata: Optional[Dict[str, Any]] = None
     
     def fit_transform(self, data: np.ndarray) -> np.ndarray:
         """
@@ -223,14 +224,17 @@ class TimeSeriesPreprocessor:
         
         return data
     
-    def create_windows(self, data: np.ndarray, 
-                      labels: Optional[np.ndarray] = None) -> Tuple[np.ndarray, Optional[np.ndarray]]:
+    def create_windows(self, data: np.ndarray,
+                      labels: Optional[np.ndarray] = None,
+                      chunk_size: int = 4096) -> Tuple[np.ndarray, Optional[np.ndarray]]:
         """
         Create fixed-length sliding windows
         
         Args:
             data: array[T, D] - T timesteps, D features
             labels: array[T] or None - Binary labels for each timestep
+            chunk_size: Maximum number of windows materialized per processing
+                chunk. The returned arrays still contain the complete split.
             
         Returns:
             windows: array[N, window_size, D] - N windows
@@ -244,6 +248,8 @@ class TimeSeriesPreprocessor:
         # Validate input
         if data.size == 0:
             raise ValueError("Input data is empty")
+        if chunk_size <= 0:
+            raise ValueError(f"chunk_size must be positive, got {chunk_size}")
         
         if data.ndim != 2:
             raise ValueError(
@@ -265,30 +271,73 @@ class TimeSeriesPreprocessor:
         # Calculate number of windows
         n_windows = (data.shape[0] - self.window_size) // self.stride + 1
         
-        # Create windows
-        windows = []
-        window_labels = [] if labels is not None else None
-        
-        for i in range(n_windows):
-            start_idx = i * self.stride
-            end_idx = start_idx + self.window_size
-            
-            # Extract window
-            window = data[start_idx:end_idx, :]
-            windows.append(window)
-            
-            # Extract label (last timestep in window)
-            if labels is not None:
-                label = labels[end_idx - 1]
-                window_labels.append(label)
-        
-        # Convert to numpy arrays
-        windows = np.array(windows)
-        
-        if window_labels is not None:
-            window_labels = np.array(window_labels)
-        
+        # Allocate only the final output and fill it in bounded chunks. This
+        # avoids the transient list-of-arrays peak from the old implementation.
+        windows = np.empty(
+            (n_windows, self.window_size, data.shape[1]), dtype=data.dtype
+        )
+        window_labels = (
+            np.empty(n_windows, dtype=labels.dtype) if labels is not None else None
+        )
+        for chunk_start in range(0, n_windows, chunk_size):
+            chunk_end = min(chunk_start + chunk_size, n_windows)
+            for window_idx in range(chunk_start, chunk_end):
+                start_idx = window_idx * self.stride
+                end_idx = start_idx + self.window_size
+                windows[window_idx] = data[start_idx:end_idx, :]
+                if window_labels is not None:
+                    window_labels[window_idx] = labels[end_idx - 1]
+
         return windows, window_labels
+
+    def iter_windows(
+        self,
+        data: np.ndarray,
+        labels: Optional[np.ndarray] = None,
+        chunk_size: int = 4096,
+    ) -> Iterator[Tuple[np.ndarray, Optional[np.ndarray]]]:
+        """Yield window chunks without materializing a complete split.
+
+        This is the bounded preprocessing path for larger experiments. Each
+        yielded array has at most ``chunk_size`` windows and never crosses the
+        supplied data segment's boundary.
+        """
+        if data.size == 0:
+            raise ValueError("Input data is empty")
+        if data.ndim != 2:
+            raise ValueError(
+                f"Expected 2D array [timesteps, features], got shape {data.shape}"
+            )
+        if chunk_size <= 0:
+            raise ValueError(f"chunk_size must be positive, got {chunk_size}")
+        if data.shape[0] < self.window_size:
+            raise ValueError(
+                f"Data length ({data.shape[0]}) is less than window_size ({self.window_size})"
+            )
+        if labels is not None and labels.shape[0] != data.shape[0]:
+            raise ValueError(
+                f"Data and labels length mismatch: data={data.shape[0]}, "
+                f"labels={labels.shape[0]}"
+            )
+
+        n_windows = (data.shape[0] - self.window_size) // self.stride + 1
+        for chunk_start in range(0, n_windows, chunk_size):
+            chunk_end = min(chunk_start + chunk_size, n_windows)
+            windows = np.empty(
+                (chunk_end - chunk_start, self.window_size, data.shape[1]),
+                dtype=data.dtype,
+            )
+            chunk_labels = (
+                np.empty(chunk_end - chunk_start, dtype=labels.dtype)
+                if labels is not None else None
+            )
+            for offset, window_idx in enumerate(range(chunk_start, chunk_end)):
+                start_idx = window_idx * self.stride
+                end_idx = start_idx + self.window_size
+                windows[offset] = data[start_idx:end_idx, :]
+                if chunk_labels is not None:
+                    chunk_labels[offset] = labels[end_idx - 1]
+            yield windows, chunk_labels
     
     def split_data(self, data: np.ndarray, labels: np.ndarray,
                    train_ratio: float = 0.7, val_ratio: float = 0.15) -> Dict[str, Tuple[np.ndarray, np.ndarray]]:
@@ -314,24 +363,6 @@ class TimeSeriesPreprocessor:
             
         **Validates Requirement:** 1.7
         """
-        # Validate ratios
-        if train_ratio <= 0 or train_ratio >= 1:
-            raise ValueError(
-                f"train_ratio must be in (0, 1), got {train_ratio}"
-            )
-        
-        if val_ratio < 0 or val_ratio >= 1:
-            raise ValueError(
-                f"val_ratio must be in [0, 1), got {val_ratio}"
-            )
-        
-        test_ratio = 1.0 - train_ratio - val_ratio
-        if test_ratio <= 0:
-            raise ValueError(
-                f"train_ratio + val_ratio must be less than 1.0, "
-                f"got {train_ratio} + {val_ratio} = {train_ratio + val_ratio}"
-            )
-        
         # Validate input
         if data.shape[0] != labels.shape[0]:
             raise ValueError(
@@ -340,40 +371,89 @@ class TimeSeriesPreprocessor:
             )
         
         n_samples = data.shape[0]
-        
-        # Check minimum samples for split
-        if n_samples < 3:
-            raise ValueError(
-                f"Not enough samples ({n_samples}) for train/val/test split. "
-                f"Need at least 3 samples."
-            )
-        
-        # Calculate split indices
-        train_end = int(n_samples * train_ratio)
-        val_end = int(n_samples * (train_ratio + val_ratio))
-        
-        # Ensure each split has at least one sample
-        if train_end == 0:
-            train_end = 1
-        if val_end == train_end:
-            val_end = train_end + 1
-        if val_end >= n_samples:
-            val_end = n_samples - 1
+        boundaries = self.temporal_split_indices(
+            n_samples, train_ratio=train_ratio, val_ratio=val_ratio
+        )
+        train_start, train_end = boundaries["train"]
+        val_start, val_end = boundaries["val"]
+        test_start, test_end = boundaries["test"]
+
+        self._last_split_metadata = {
+            "strategy": "temporal",
+            "num_samples": n_samples,
+            "train_ratio": float(train_ratio),
+            "val_ratio": float(val_ratio),
+            "ranges": {
+                "train": [train_start, train_end],
+                "val": [val_start, val_end],
+                "test": [test_start, test_end],
+            },
+        }
         
         # Split data
-        X_train = data[:train_end]
-        y_train = labels[:train_end]
+        X_train = data[train_start:train_end]
+        y_train = labels[train_start:train_end]
         
-        X_val = data[train_end:val_end]
-        y_val = labels[train_end:val_end]
+        X_val = data[val_start:val_end]
+        y_val = labels[val_start:val_end]
         
-        X_test = data[val_end:]
-        y_test = labels[val_end:]
+        X_test = data[test_start:test_end]
+        y_test = labels[test_start:test_end]
         
         return {
             'train': (X_train, y_train),
             'val': (X_val, y_val),
             'test': (X_test, y_test)
+        }
+
+    @staticmethod
+    def temporal_split_indices(
+        n_samples: int,
+        train_ratio: float = 0.7,
+        val_ratio: float = 0.15,
+    ) -> Dict[str, Tuple[int, int]]:
+        """Return deterministic, non-overlapping temporal slice boundaries.
+
+        The function uses no random state and guarantees at least one sample in
+        each split when ``n_samples >= 3``. Keeping the boundaries separate from
+        window creation prevents a window from crossing a split boundary.
+        """
+        if train_ratio <= 0 or train_ratio >= 1:
+            raise ValueError(f"train_ratio must be in (0, 1), got {train_ratio}")
+        if val_ratio < 0 or val_ratio >= 1:
+            raise ValueError(f"val_ratio must be in [0, 1), got {val_ratio}")
+        if train_ratio + val_ratio >= 1.0:
+            raise ValueError(
+                "train_ratio + val_ratio must be less than 1.0, "
+                f"got {train_ratio} + {val_ratio} = {train_ratio + val_ratio}"
+            )
+        if n_samples < 3:
+            raise ValueError(
+                f"Not enough samples ({n_samples}) for train/val/test split. "
+                "Need at least 3 samples."
+            )
+
+        train_end = min(max(int(n_samples * train_ratio), 1), n_samples - 2)
+        val_end = min(
+            max(int(n_samples * (train_ratio + val_ratio)), train_end + 1),
+            n_samples - 1,
+        )
+        return {
+            "train": (0, train_end),
+            "val": (train_end, val_end),
+            "test": (val_end, n_samples),
+        }
+
+    def get_split_metadata(self) -> Optional[Dict[str, Any]]:
+        """Return metadata for the most recent temporal split."""
+        if self._last_split_metadata is None:
+            return None
+        return {
+            **self._last_split_metadata,
+            "ranges": {
+                name: list(bounds)
+                for name, bounds in self._last_split_metadata["ranges"].items()
+            },
         }
     
     def save_scaler(self, path: str):

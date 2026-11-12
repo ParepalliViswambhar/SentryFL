@@ -18,16 +18,54 @@ Key Features:
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.utils.data import DataLoader, TensorDataset, random_split
+from torch.utils.data import DataLoader, TensorDataset, Subset, random_split
 from typing import Dict, List, Tuple, Optional, Any
+from dataclasses import dataclass
+import hashlib
 import numpy as np
-from sklearn.metrics import accuracy_score, precision_score, recall_score, roc_auc_score, roc_curve
+from sklearn.metrics import (
+    accuracy_score,
+    balanced_accuracy_score,
+    precision_score,
+    recall_score,
+    roc_auc_score,
+    roc_curve,
+)
 from sklearn.linear_model import LogisticRegression
 import logging
 import matplotlib.pyplot as plt
 import seaborn as sns
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class MIAProtocolSplit:
+    """Leakage-free member/non-member attack train/test split."""
+
+    member_train: Subset
+    member_test: Subset
+    non_member_train: Subset
+    non_member_test: Subset
+    seed: int
+    member_ratio: float
+    attack_train_ratio: float
+    index_checksum: str
+
+    @property
+    def metadata(self) -> Dict[str, Any]:
+        return {
+            "seed": self.seed,
+            "member_ratio": self.member_ratio,
+            "attack_train_ratio": self.attack_train_ratio,
+            "member_train_size": len(self.member_train),
+            "member_test_size": len(self.member_test),
+            "non_member_train_size": len(self.non_member_train),
+            "non_member_test_size": len(self.non_member_test),
+            "disjoint_member_non_member": True,
+            "disjoint_attack_train_test": True,
+            "index_checksum": self.index_checksum,
+        }
 
 
 class MIAEvaluator:
@@ -126,6 +164,108 @@ class MIAEvaluator:
         )
         
         return member_data, non_member_data
+
+    def prepare_attack_protocol(
+        self,
+        dataset: TensorDataset,
+        member_ratio: float = 0.5,
+        attack_train_ratio: float = 0.6,
+        seed: int = 42,
+    ) -> MIAProtocolSplit:
+        """Create deterministic, disjoint shadow/attack train and test sets.
+
+        The member/non-member partition is made first.  Each partition is then
+        split into attack-training and attack-evaluation portions, so no sample
+        used to train the attack classifier can appear in its reported result.
+        Only index metadata is retained; raw records are not copied into the
+        protocol report.
+        """
+        if not 0 < member_ratio < 1:
+            raise ValueError("member_ratio must be strictly between 0 and 1")
+        if not 0 < attack_train_ratio < 1:
+            raise ValueError("attack_train_ratio must be strictly between 0 and 1")
+        if len(dataset) < 4:
+            raise ValueError("MIA protocol requires at least four samples")
+
+        generator = np.random.default_rng(seed)
+        shuffled = generator.permutation(len(dataset))
+        member_size = int(len(dataset) * member_ratio)
+        member_indices = shuffled[:member_size]
+        non_member_indices = shuffled[member_size:]
+
+        def split(indices: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+            train_size = int(len(indices) * attack_train_ratio)
+            if train_size < 1 or train_size >= len(indices):
+                raise ValueError(
+                    "attack_train_ratio leaves an empty attack train/test split"
+                )
+            return indices[:train_size], indices[train_size:]
+
+        member_train, member_test = split(member_indices)
+        non_member_train, non_member_test = split(non_member_indices)
+        all_groups = {
+            "member_train": member_train.tolist(),
+            "member_test": member_test.tolist(),
+            "non_member_train": non_member_train.tolist(),
+            "non_member_test": non_member_test.tolist(),
+        }
+        checksum = hashlib.sha256(
+            repr(all_groups).encode("utf-8")
+        ).hexdigest()
+        return MIAProtocolSplit(
+            member_train=Subset(dataset, member_train.tolist()),
+            member_test=Subset(dataset, member_test.tolist()),
+            non_member_train=Subset(dataset, non_member_train.tolist()),
+            non_member_test=Subset(dataset, non_member_test.tolist()),
+            seed=int(seed),
+            member_ratio=float(member_ratio),
+            attack_train_ratio=float(attack_train_ratio),
+            index_checksum=checksum,
+        )
+
+    def run_leakage_free_protocol(
+        self,
+        dataset: TensorDataset,
+        *,
+        member_ratio: float = 0.5,
+        attack_train_ratio: float = 0.6,
+        seed: int = 42,
+        epochs: int = 10,
+        batch_size: int = 32,
+        learning_rate: float = 0.001,
+        attack_strategy: str = "model_based",
+    ) -> Dict[str, Any]:
+        """Run the complete shadow/attack protocol and return a report bundle."""
+        protocol = self.prepare_attack_protocol(
+            dataset,
+            member_ratio=member_ratio,
+            attack_train_ratio=attack_train_ratio,
+            seed=seed,
+        )
+        self.train_shadow_models(
+            protocol.member_train,
+            protocol.non_member_train,
+            epochs=epochs,
+            batch_size=batch_size,
+            learning_rate=learning_rate,
+        )
+        self.train_attack_classifier(
+            protocol.member_train,
+            protocol.non_member_train,
+            batch_size=batch_size,
+            attack_strategy=attack_strategy,
+        )
+        metrics = self.evaluate_attack(
+            protocol.member_test,
+            protocol.non_member_test,
+            batch_size=batch_size,
+            attack_strategy=attack_strategy,
+        )
+        return {
+            "protocol": protocol.metadata,
+            "metrics": metrics,
+            "evidence_status": "measured",
+        }
     
     def train_shadow_models(
         self,
@@ -449,9 +589,15 @@ class MIAEvaluator:
         
         metrics = {
             'accuracy': accuracy,
+            'balanced_accuracy': balanced_accuracy_score(y_true, y_pred),
             'precision': precision,
             'recall': recall,
             'auc': auc,
+            'roc_auc': auc,
+            'chance_baseline': baseline_accuracy,
+            'mia_success_rate': accuracy,
+            'member_count': int(np.sum(y_true == 1)),
+            'non_member_count': int(np.sum(y_true == 0)),
             'privacy_leakage': privacy_leakage,
             'leakage_severity': severity
         }

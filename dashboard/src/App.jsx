@@ -31,6 +31,10 @@ import ExperimentList from './pages/ExperimentList';
 import ExperimentDetail from './pages/ExperimentDetail';
 import Comparison from './pages/Comparison';
 import Settings from './pages/Settings';
+import Monitor from './pages/Monitor';
+import PrivacyEvaluation from './pages/PrivacyEvaluation';
+import AggregationVisualizer from './pages/AggregationVisualizer';
+import Artifacts from './pages/Artifacts';
 import Login from './pages/Login';
 import Register from './pages/Register';
 import NotFound from './pages/NotFound';
@@ -67,6 +71,10 @@ function App() {
                   <Route path=":id" element={<ExperimentDetail />} />
                 </Route>
                 <Route path="comparison" element={<Comparison />} />
+                <Route path="monitor" element={<Monitor />} />
+                <Route path="privacy" element={<PrivacyEvaluation />} />
+                <Route path="aggregation" element={<AggregationVisualizer />} />
+                <Route path="artifacts" element={<Artifacts />} />
                 <Route path="settings" element={<Settings />} />
                 {/* Authenticated catch-all: a themed 404 that keeps the app
                     shell. Unauthenticated unknown paths fall through to

@@ -16,6 +16,7 @@ import { useDispatch, useSelector } from 'react-redux';
 import { Alert, Box, Button, CircularProgress, Stack } from '@mui/material';
 import ScienceIcon from '@mui/icons-material/Science';
 import DownloadIcon from '@mui/icons-material/Download';
+import DescriptionIcon from '@mui/icons-material/Description';
 import { useState } from 'react';
 import apiClient from '../api/client';
 import {
@@ -77,6 +78,21 @@ const ExperimentDetail = () => {
     }
   };
 
+  const downloadReport = async () => {
+    setDownloadError('');
+    try {
+      const response = await apiClient.get(`/experiments/${id}/report/data`, { responseType: 'blob' });
+      const url = URL.createObjectURL(response.data);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `${id}-report.json`;
+      anchor.click();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      setDownloadError(error.response?.data?.message || 'Report is not available yet.');
+    }
+  };
+
   return (
     <Box>
       <PageHeader
@@ -87,6 +103,9 @@ const ExperimentDetail = () => {
           <Stack direction="row" alignItems="center" gap={1}>
             <Button variant="outlined" startIcon={<DownloadIcon />} onClick={downloadModel}>
               Download global model
+            </Button>
+            <Button variant="outlined" startIcon={<DescriptionIcon />} onClick={downloadReport}>
+              Download report data
             </Button>
             <StatusChip status={experiment.status} />
           </Stack>

@@ -1342,6 +1342,44 @@ router.get(
 );
 
 /**
+ * GET /api/experiments/:id/report/data
+ * Return the machine-readable report bundle used by research surfaces.
+ * The existing /report endpoint remains the binary download contract.
+ */
+router.get(
+  '/:id/report/data',
+  authenticate,
+  validateParams(experimentIdSchema),
+  asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    const user = req.user;
+    let experiment = experimentCache.get(`experiment:${id}`);
+
+    if (!experiment) {
+      const response = await axiosClient.get(`/train/${id}/status`);
+      experiment = { experiment_id: id, ...response.data };
+    }
+    if (!hasExperimentAccess(user, experiment)) {
+      throw new AppError('Access denied: you do not have permission to view this report', 403, {
+        experiment_id: id,
+      });
+    }
+
+    try {
+      const response = await axiosClient.get(`/train/${id}/report`, {
+        headers: { Accept: 'application/json' },
+      });
+      return res.status(200).json(response.data);
+    } catch (error) {
+      if (error.response?.status === 404) {
+        throw new AppError('Experiment report data not available', 404, { experiment_id: id });
+      }
+      throw error;
+    }
+  })
+);
+
+/**
  * GET /api/experiments/:id/model
  * Download the latest global model for local client inference.
  */

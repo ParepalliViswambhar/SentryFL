@@ -48,6 +48,18 @@ from .reproducibility import (
     log_experiment_start,
 )
 
+from .manifest import (
+    EVIDENCE_STATUSES,
+    ExperimentManifest,
+    build_manifest,
+    canonical_json,
+    dataset_descriptor,
+    dependency_lock_descriptor,
+    sha256_bytes,
+    sha256_file,
+    sha256_json,
+)
+
 __all__ = [
     'ConfigurationSystem',
     'ConfigurationError',
@@ -80,4 +92,14 @@ __all__ = [
     'ReproducibilityManager',
     'set_global_seed',
     'log_experiment_start',
+    # Provenance manifests
+    'EVIDENCE_STATUSES',
+    'ExperimentManifest',
+    'build_manifest',
+    'canonical_json',
+    'dataset_descriptor',
+    'dependency_lock_descriptor',
+    'sha256_bytes',
+    'sha256_file',
+    'sha256_json',
 ]

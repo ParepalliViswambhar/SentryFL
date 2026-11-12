@@ -90,6 +90,7 @@ class ExperimentLogger:
         
         # System monitoring
         self.process = psutil.Process()
+        self.peak_memory_mb = 0.0
         
         # Log initialization
         self._log_initialization()
@@ -326,12 +327,14 @@ class ExperimentLogger:
         memory_info = self.process.memory_info()
         memory_mb = memory_info.rss / (1024 * 1024)  # Convert to MB
         memory_percent = self.process.memory_percent()
+        self.peak_memory_mb = max(self.peak_memory_mb, memory_mb)
         
         metrics = {
             "round": round_num,
             "elapsed_time": time.time() - self.start_time,
             "cpu_percent": cpu_percent,
             "memory_mb": memory_mb,
+            "peak_memory_mb": self.peak_memory_mb,
             "memory_percent": memory_percent,
             "timestamp": time.time() - self.start_time
         }

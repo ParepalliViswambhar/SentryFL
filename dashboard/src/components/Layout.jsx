@@ -42,6 +42,10 @@ import AddIcon from '@mui/icons-material/Add';
 import ExperimentIcon from '@mui/icons-material/Science';
 import CompareIcon from '@mui/icons-material/CompareArrows';
 import SettingsIcon from '@mui/icons-material/Settings';
+import MonitorHeartIcon from '@mui/icons-material/MonitorHeart';
+import SecurityIcon from '@mui/icons-material/Security';
+import AccountTreeIcon from '@mui/icons-material/AccountTree';
+import Inventory2Icon from '@mui/icons-material/Inventory2';
 import LogoutIcon from '@mui/icons-material/Logout';
 import AccountIcon from '@mui/icons-material/AccountCircle';
 import NotificationsIcon from '@mui/icons-material/Notifications';
@@ -58,7 +62,11 @@ const NAV_ITEMS = [
   { text: 'Overview', icon: <DashboardIcon />, path: '/' },
   { text: 'New Experiment', icon: <AddIcon />, path: '/experiments/new' },
   { text: 'Experiments', icon: <ExperimentIcon />, path: '/experiments' },
+  { text: 'Federated monitor', icon: <MonitorHeartIcon />, path: '/monitor' },
   { text: 'Comparison', icon: <CompareIcon />, path: '/comparison' },
+  { text: 'Privacy evaluation', icon: <SecurityIcon />, path: '/privacy' },
+  { text: 'Aggregation lab', icon: <AccountTreeIcon />, path: '/aggregation' },
+  { text: 'Artifacts', icon: <Inventory2Icon />, path: '/artifacts' },
   { text: 'Settings', icon: <SettingsIcon />, path: '/settings' },
 ];
 
@@ -69,6 +77,10 @@ const PAGE_TITLES = [
   [/^\/experiments\/[^/]+$/, 'Experiment Detail'],
   [/^\/experiments\/?$/, 'Experiments'],
   [/^\/comparison/, 'Comparison'],
+  [/^\/monitor/, 'Federated monitor'],
+  [/^\/privacy/, 'Privacy evaluation'],
+  [/^\/aggregation/, 'Aggregation visualizer'],
+  [/^\/artifacts/, 'Artifacts & onboarding'],
   [/^\/settings/, 'Settings'],
 ];
 const titleFor = (pathname) => (PAGE_TITLES.find(([re]) => re.test(pathname)) || [null, 'SentryFL'])[1];
@@ -376,4 +388,3 @@ const Layout = () => {
 };
 
 export default Layout;
-

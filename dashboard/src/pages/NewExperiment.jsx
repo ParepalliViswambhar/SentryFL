@@ -10,6 +10,8 @@ import { useNavigate } from 'react-router-dom';
 import { Box, Typography, Paper, TextField, MenuItem, Button, Stack, Alert, Divider, FormControlLabel, Switch } from '@mui/material';
 import { createExperiment, selectExperimentsError, selectExperimentsStatus } from '../store/slices/experimentsSlice';
 import apiClient from '../api/client';
+import ScienceIcon from '@mui/icons-material/Science';
+import { PageHeader } from '../components/ui';
 
 const defaultConfig = { experiment: { name: '', seed: 42 }, data: { dataset: 'SMD', data_source: 'synthetic', window_size: 100, stride: 1 }, model: { backbone: 'bert-base-uncased', hidden_dim: 768, dropout: 0.1 }, training: { num_rounds: 100, local_epochs: 5, batch_size: 32, learning_rate: 0.001 }, federated: { num_clients: 10, clients_per_round: 5, partition_strategy: 'iid', aggregation: 'fedavg' }, privacy: { enabled: true, epsilon: 1, delta: 0.00001 }, parameter_efficiency: { adms_enabled: true, selection_ratio: 0.05 } };
 const update = (config, section, field, value) => ({ ...config, [section]: { ...config[section], [field]: value } });
@@ -55,10 +57,11 @@ const NewExperiment = () => {
   const saveTemplate = async () => { if (!config.experiment.name.trim()) { setMessage('Add an experiment name before saving a template.'); return; } await apiClient.post('/configs', config); setMessage('Configuration template saved.'); };
   return (
     <Box>
-      <Typography variant="h4" gutterBottom>
-        Create New Experiment
-      </Typography>
-      <Typography color="text.secondary" mb={3}>Configure and start a federated learning training experiment</Typography>
+      <PageHeader
+        title="Create New Experiment"
+        subtitle="Declare the dataset, protocol, privacy scope, and resource budget before starting."
+        icon={<ScienceIcon />}
+      />
       {(error || message) && <Alert severity={error ? 'error' : 'success'} sx={{ mb: 2 }}>{error ? (typeof error === 'string' ? error : error.message || 'Unable to create experiment.') : message}</Alert>}
       <Paper component="form" onSubmit={submit} sx={{ p: { xs: 2, md: 3 } }}><Stack spacing={3}>
         <TextField select label="Load saved configuration" value={template} onChange={loadTemplate} helperText="Optional"><MenuItem value="">Start from defaults</MenuItem>{templates.map((item) => <MenuItem key={item.id || item.name} value={item.id || item.name}>{item.name || item.id}</MenuItem>)}</TextField>

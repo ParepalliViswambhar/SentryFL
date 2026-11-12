@@ -14,7 +14,9 @@ Validates Requirements: 2.1-2.10, 5.7, 7.1-7.11, 18.3
 """
 
 import copy
+import json
 import logging
+import random
 import torch
 import torch.nn as nn
 from torch.utils.data import TensorDataset, DataLoader
@@ -28,6 +30,7 @@ from sentryfl.federated.client import FederatedClient
 from sentryfl.federated.server import AggregationServer
 from sentryfl.federated.adms import ADMSModule
 from sentryfl.privacy.differential_privacy import DifferentialPrivacyModule
+from sentryfl.privacy.privacy_ledger import PrivacyLedger
 from sentryfl.evaluation.evaluation_pipeline import EvaluationPipeline
 from sentryfl.utils.comm_meter import measure_update_bytes
 from sentryfl.utils.config import ConfigurationSystem
@@ -36,6 +39,7 @@ from sentryfl.utils.experiment_logger import ExperimentLogger
 from sentryfl.utils.validation import check_gpu_memory
 from sentryfl.utils.exceptions import MemoryError as SentryFLMemoryError
 from sentryfl.utils.reproducibility import ReproducibilityManager
+from sentryfl.utils.manifest import build_manifest, sha256_json
 from sentryfl.optimization.quantization_engine import QuantizationEngine
 
 # Configure logging
@@ -126,6 +130,33 @@ class MainTrainer:
         # DP-FedAvg server-side components (built in _initialize_server).
         self.dp_fedavg_mechanism = None
         self.privacy_budget = None
+        privacy_scope = (
+            'client/silo/entity-level'
+            if self.privacy_mechanism == 'dp_fedavg'
+            else 'record-level client-side'
+            if self.privacy_mechanism == 'record_dpsgd'
+            else 'not applicable'
+        )
+        self.privacy_ledger = PrivacyLedger(
+            mechanism=self.privacy_mechanism,
+            scope=privacy_scope,
+            accountant=self.privacy_config.get('accountant'),
+            target_epsilon=self.privacy_config.get('epsilon'),
+            target_delta=self.privacy_config.get('delta'),
+        )
+        self.privacy_ledger.record_release(
+            release_type='raw_records',
+            audience='client-local process',
+            status='not_released',
+            potentially_leaky=False,
+            details={'federation_mode': 'in_process_simulation'},
+        )
+        self.privacy_ledger.record_release(
+            release_type='global_model_artifact',
+            audience='authorized artifact download',
+            status='available_when_completed',
+            details={'artifact_endpoint': '/experiments/:id/model'},
+        )
         
         # Setup reproducibility with comprehensive seed setting (Requirements 20.11, 20.12)
         self.repro_manager = ReproducibilityManager(
@@ -148,6 +179,13 @@ class MainTrainer:
         self.best_val_metric = 0.0
         self.early_stop_counter = 0
         self.training_complete = False
+        # Provenance populated during setup. Keeping these explicit makes the
+        # manifest available to the API/reporting layer without re-reading raw
+        # client data.
+        self.dataset_provenance: Dict[str, Any] = {}
+        self.split_provenance: Dict[str, Any] = {}
+        self.manifest_path: Optional[str] = None
+        self.result_report_path: Optional[str] = None
         
         logger.info(f"MainTrainer initialized with device={device}")
     
@@ -246,18 +284,41 @@ class MainTrainer:
             train_data = data_dict['train']
             train_labels = data_dict['train_labels']
         
-        # Fit and transform training data
-        logger.info("Normalizing training data...")
-        train_data_normalized = preprocessor.fit_transform(train_data)
-        
-        # Create windows
-        logger.info("Creating time windows...")
+        # Split the source training stream before fitting statistics. Each
+        # segment is windowed independently so a window cannot cross a split
+        # boundary. The held-out dataset file remains the final test split.
+        temporal_ranges = preprocessor.temporal_split_indices(
+            len(train_data),
+            train_ratio=self.data_config['train_ratio'],
+            val_ratio=self.data_config['val_ratio'],
+        )
+        train_start, train_end = temporal_ranges['train']
+        val_start, val_end = temporal_ranges['val']
+        source_train = train_data[train_start:train_end]
+        source_val = train_data[val_start:val_end]
+        source_train_labels = train_labels[train_start:train_end]
+        source_val_labels = train_labels[val_start:val_end]
+        chunk_size = self.data_config.get('chunk_size', 4096)
+
+        # Fit normalization on the training segment only. Validation and test
+        # statistics are never allowed to influence the fitted scaler.
+        logger.info("Normalizing training data using the training segment only...")
+        train_data_normalized = preprocessor.fit_transform(source_train)
+        val_data_normalized = preprocessor.transform(source_val)
+
+        # Create windows independently for each split to preserve temporal
+        # boundaries and deterministic sample membership.
+        logger.info("Creating leakage-free temporal windows...")
         train_windows, train_window_labels = preprocessor.create_windows(
-            train_data_normalized,
-            train_labels
+            train_data_normalized, source_train_labels, chunk_size=chunk_size
+        )
+        val_windows, val_window_labels = preprocessor.create_windows(
+            val_data_normalized, source_val_labels, chunk_size=chunk_size
         )
         self.calibration_data = torch.FloatTensor(train_windows)
-        
+        self.validation_data = torch.FloatTensor(val_windows)
+        self.validation_labels = val_window_labels
+
         logger.info(f"Created {len(train_windows)} training windows")
         
         # Partition data across clients
@@ -289,18 +350,53 @@ class MainTrainer:
             test_data = data_dict['test']
             test_labels = data_dict['test_labels']
         
-        # Transform and window test data
+        # Transform and window the independent held-out test file with the
+        # training-only scaler. The source range is recorded for provenance;
+        # test-file rows are not mixed with the training stream.
         test_data_normalized = preprocessor.transform(test_data)
         test_windows, test_window_labels = preprocessor.create_windows(
             test_data_normalized,
-            test_labels
+            test_labels,
+            chunk_size=chunk_size,
         )
         
         # Convert to tensors
         self.test_data = torch.FloatTensor(test_windows)
         self.test_labels = test_window_labels
-        
+
         logger.info(f"Test set: {len(test_windows)} windows")
+
+        self.split_provenance = {
+            'strategy': 'temporal',
+            'training_source_rows': len(train_data),
+            'training_source_ranges': {
+                'train': list(temporal_ranges['train']),
+                'val': list(temporal_ranges['val']),
+                'test_reserve': list(temporal_ranges['test']),
+            },
+            'held_out_test_source_rows': len(test_data),
+            'window_size': self.data_config['window_size'],
+            'stride': self.data_config['stride'],
+            'window_counts': {
+                'train': len(train_windows),
+                'val': len(val_windows),
+                'test': len(test_windows),
+            },
+            'normalization_fit_split': 'train',
+            'test_source': 'held_out_dataset_file',
+        }
+        self.dataset_provenance = {
+            'name': dataset_name,
+            'path': str(Path(self.data_path).resolve()),
+            'loader': f'{loader.__class__.__module__}.{loader.__class__.__qualname__}',
+            **loader.get_data_contract(),
+            'sequence_semantics': (
+                'contiguous source-file order; not natural temporal order'
+                if dataset_name == 'NSL-KDD'
+                else 'contiguous machine telemetry order'
+            ),
+        }
+        self.split_checksum = sha256_json(self.split_provenance)
         
         # Save preprocessor for inference
         preprocessor_path = Path(self.experiment_config['output_dir']) / 'preprocessor.pkl'
@@ -314,6 +410,9 @@ class MainTrainer:
         num_clients = self.federated_config['num_clients']
         batch_size = self.training_config['batch_size']
         learning_rate = self.training_config['learning_rate']
+        num_workers = self.training_config.get('num_workers', 0)
+        pin_memory = self.training_config.get('pin_memory', False)
+        prefetch_factor = self.training_config.get('prefetch_factor', 2)
         
         self.clients = []
         
@@ -339,7 +438,10 @@ class MainTrainer:
                 local_data=(client_data_tensor, client_labels_tensor),
                 batch_size=batch_size,
                 learning_rate=learning_rate,
-                device=self.device
+                device=self.device,
+                num_workers=num_workers,
+                pin_memory=pin_memory,
+                prefetch_factor=prefetch_factor,
             )
             
             self.clients.append(client)
@@ -480,6 +582,28 @@ class MainTrainer:
             output_path=str(Path(self.experiment_config['output_dir']) / 'reproducibility_report.json')
         )
         logger.info(f"Reproducibility report saved to {repro_report_path}")
+
+        # Persist the PRD manifest alongside the existing human-oriented
+        # reproducibility report. Dataset files are represented by checksums;
+        # raw client records never enter the manifest.
+        system_info = self.repro_manager.system_info or self.repro_manager.get_system_info()
+        manifest = build_manifest(
+            config=self.config.to_dict(),
+            seed=self.repro_manager.seed,
+            dataset_name=self.data_config['dataset'],
+            dataset_root=self.data_path,
+            dataset_contract=self.dataset_provenance,
+            split_checksum=self.split_checksum,
+            model=self.model,
+            model_config=self.config.get_section('model'),
+            hardware=system_info.get('hardware', {}),
+            repo_dir=Path(__file__).resolve().parents[1],
+            evidence_status='measured',
+        )
+        self.manifest_path = manifest.write(
+            Path(self.experiment_config['output_dir']) / 'manifest.json'
+        )
+        logger.info(f"Experiment manifest saved to {self.manifest_path}")
         
         logger.info("Experiment infrastructure initialized")
     
@@ -509,7 +633,11 @@ class MainTrainer:
         local_epochs = self.training_config['local_epochs']
         clients_per_round = self.federated_config['clients_per_round']
         
-        for round_num in range(1, num_rounds + 1):
+        # A resumed checkpoint represents the completed round stored in
+        # ``current_round``. Continue from the next round rather than replaying
+        # the completed one.
+        start_round = max(1, self.current_round + 1)
+        for round_num in range(start_round, num_rounds + 1):
             if self.stop_event is not None and self.stop_event.is_set():
                 break
             self.current_round = round_num
@@ -575,10 +703,20 @@ class MainTrainer:
             
             # 4. Aggregate client updates
             logger.info(f"\nAggregating updates from {len(round_metrics)} clients...")
+            if not round_metrics:
+                raise RuntimeError(
+                    f"Round {round_num} produced no valid client updates; "
+                    "training cannot continue with fabricated metrics"
+                )
             agg_stats = self.aggregation_server.aggregate_updates(
                 round_num=round_num,
                 min_clients=1
             )
+            if agg_stats.get('status') == 'insufficient_clients':
+                raise RuntimeError(
+                    f"Round {round_num} could not aggregate the accepted client "
+                    f"updates: {agg_stats}"
+                )
             
             # 5. Compute round metrics
             avg_loss = np.mean([m['final_loss'] for m in round_metrics])
@@ -603,6 +741,95 @@ class MainTrainer:
                 **agg_stats,
                 **comm_stats
             )
+
+            # Keep communication as its own evidence category.  The payload
+            # value is measured from the serialized client update above; no
+            # download or network overhead is inferred when it was not
+            # observed.
+            self.experiment_logger.log_communication_metrics(
+                round_num=round_num,
+                bytes_transferred=round_upload_bytes,
+                num_clients=n_participants,
+                bytes_sent=round_upload_bytes,
+                accepted_updates=agg_stats.get('accepted_updates', n_participants),
+                rejected_updates=agg_stats.get('rejected_updates', {}),
+                avg_client_upload_bytes=round_upload_bytes / n_participants,
+                peft_method=self.peft_method,
+                aggregation_method=agg_stats.get('aggregation_method'),
+            )
+
+            # Privacy accounting is a separate measured stream.  MIA is not
+            # generated by training and therefore remains absent unless an
+            # explicit attack evaluation supplies it.
+            if self.privacy_mechanism == 'dp_fedavg':
+                dp_stats = getattr(self.aggregation_server, '_last_dp_stats', {})
+                if 'epsilon' in dp_stats:
+                    self.experiment_logger.log_privacy_metrics(
+                        round_num=round_num,
+                        epsilon=dp_stats['epsilon'],
+                        delta=self.privacy_config['delta'],
+                        mechanism='dp_fedavg',
+                        scope='client/silo/entity-level',
+                        accountant=self.privacy_config.get('accountant'),
+                    )
+            elif self.privacy_mechanism == 'record_dpsgd':
+                client_epsilons = [
+                    metric['epsilon_spent']
+                    for metric in round_metrics
+                    if metric.get('epsilon_spent') is not None
+                ]
+                if client_epsilons:
+                    self.experiment_logger.log_privacy_metrics(
+                        round_num=round_num,
+                        epsilon=max(client_epsilons),
+                        delta=self.privacy_config['delta'],
+                        mechanism='record_dpsgd',
+                        scope='record-level client-side baseline',
+                        participating_entities=len(client_epsilons),
+                    )
+
+            # The ledger records model-state exposure separately from formal
+            # accountant events. This is an internal simulator boundary, not a
+            # claim that released model updates are harmless.
+            self.privacy_ledger.record_release(
+                release_type='global_model_update',
+                audience='simulated client shards',
+                status='internal_round_state',
+                round=round_num,
+                details={'accepted_updates': agg_stats.get('accepted_updates', 0)},
+            )
+            if self.privacy_mechanism == 'dp_fedavg':
+                dp_stats = getattr(self.aggregation_server, '_last_dp_stats', {})
+                if 'epsilon' in dp_stats:
+                    self.privacy_ledger.record_accounting(
+                        round=round_num,
+                        epsilon=dp_stats['epsilon'],
+                        delta=self.privacy_config['delta'],
+                        mechanism='dp_fedavg',
+                        scope='client/silo/entity-level',
+                        accountant=self.privacy_config.get('accountant'),
+                        sample_rate=(
+                            self.privacy_budget.sample_rate
+                            if self.privacy_budget is not None else None
+                        ),
+                        participating_clients=agg_stats.get('accepted_updates'),
+                    )
+            elif self.privacy_mechanism == 'record_dpsgd':
+                ledger_epsilons = []
+                for dp_module in self.dp_modules.values():
+                    epsilon, _ = dp_module.get_privacy_spent()
+                    ledger_epsilons.append(epsilon)
+                if ledger_epsilons:
+                    self.privacy_ledger.record_accounting(
+                        round=round_num,
+                        epsilon=max(ledger_epsilons),
+                        delta=self.privacy_config['delta'],
+                        mechanism='record_dpsgd',
+                        scope='record-level client-side',
+                        accountant=self.privacy_config.get('accountant'),
+                        participating_clients=len(round_metrics),
+                    )
+
             if self.on_round_metrics is not None:
                 self.on_round_metrics(round_num, self.experiment_logger.get_all_metrics())
             
@@ -706,8 +933,8 @@ class MainTrainer:
         return False
     
     def _evaluate_validation(self) -> Any:
-        """Evaluate model on validation/test set."""
-        logger.info("Evaluating on test set...")
+        """Evaluate model on the leakage-free validation split."""
+        logger.info("Evaluating on validation split...")
         
         evaluator = EvaluationPipeline(
             model=self.aggregation_server.get_global_model(),
@@ -718,8 +945,8 @@ class MainTrainer:
         )
 
         metrics = evaluator.evaluate(
-            test_data=self.test_data,
-            test_labels=self.test_labels,
+            test_data=self.validation_data,
+            test_labels=self.validation_labels,
             batch_size=self.training_config['batch_size']
         )
         
@@ -760,7 +987,17 @@ class MainTrainer:
             'round_num': round_num,
             'best_val_metric': self.best_val_metric,
             'early_stop_counter': self.early_stop_counter,
-            'config': self.config.to_dict()
+            'config': self.config.to_dict(),
+            'optimizer_states': {
+                client.client_id: client.optimizer.state_dict()
+                for client in self.clients
+            },
+            'rng_state': self._capture_rng_state(),
+            'dp_states': {
+                client_id: dp_module.state_dict()
+                for client_id, dp_module in self.dp_modules.items()
+            },
+            'privacy_ledger': self.privacy_ledger.state_dict(),
         }
         
         # Add privacy state if applicable
@@ -810,7 +1047,9 @@ class MainTrainer:
         final_metrics = evaluator.evaluate(
             test_data=self.test_data,
             test_labels=self.test_labels,
-            batch_size=self.training_config['batch_size']
+            batch_size=self.training_config['batch_size'],
+            val_data=self.validation_data,
+            val_labels=self.validation_labels,
         )
         
         logger.info("\nFinal Test Metrics:")
@@ -824,9 +1063,10 @@ class MainTrainer:
         
         # Save final metrics
         final_metrics_path = Path(self.experiment_config['output_dir']) / 'final_metrics.json'
-        import json
         with open(final_metrics_path, 'w') as f:
             json.dump(final_metrics.to_dict(), f, indent=2)
+
+        self._write_result_report(final_metrics.to_dict())
         
         # Generate and save plots if requested
         if self.evaluation_config.get('save_plots', False):
@@ -853,6 +1093,121 @@ class MainTrainer:
         logger.info("=" * 80)
         logger.info("EXPERIMENT COMPLETE")
         logger.info("=" * 80)
+
+    def _write_result_report(self, metrics: Dict[str, Any]) -> None:
+        """Write the machine-readable evidence and limitations report."""
+        if self.privacy_mechanism == 'dp_fedavg':
+            privacy_scope = (
+                'client/silo/entity-level DP-FedAvg; this does not claim '
+                'record-level or natural-user privacy for SMD/NSL-KDD'
+            )
+        elif self.privacy_mechanism == 'record_dpsgd':
+            privacy_scope = 'record-level client-side DP-SGD baseline'
+        else:
+            privacy_scope = 'no formal differential privacy mechanism enabled'
+
+        report = {
+            'schema_version': '1.0',
+            'experiment': {
+                'name': self.experiment_config['name'],
+                'seed': self.repro_manager.seed,
+                'device': self.device,
+                'federation_mode': 'in_process_simulation',
+            },
+            'provenance': {
+                'manifest_path': self.manifest_path,
+                'dataset': self.dataset_provenance,
+                'split_checksum': getattr(self, 'split_checksum', None),
+                'model_revision': self.config.get_section('model'),
+            },
+            'privacy': {
+                'scope': privacy_scope,
+                'mechanism': self.privacy_mechanism,
+                'accountant': self.privacy_config.get('accountant'),
+                'target_epsilon': self.privacy_config.get('epsilon'),
+                'target_delta': self.privacy_config.get('delta'),
+                'ledger': self.privacy_ledger.summary(),
+                'release_inventory': self.privacy_ledger.summary()['release_inventory'],
+                'unit': (
+                    'client/silo/entity'
+                    if self.privacy_mechanism == 'dp_fedavg'
+                    else 'record'
+                    if self.privacy_mechanism == 'record_dpsgd'
+                    else None
+                ),
+            },
+            'evidence': [
+                {
+                    'component': 'configured_training_pipeline',
+                    'status': 'implemented',
+                    'source': 'versioned_source_and_tests',
+                },
+                {
+                    'component': 'training_metrics',
+                    'status': 'measured',
+                    'source': 'runtime_round_metrics',
+                },
+                {
+                    'component': 'membership_inference_attack',
+                    'status': 'experimentally_unverified',
+                    'source': 'leakage_free_protocol_available_but_not_run_by_trainer',
+                },
+                {
+                    'component': 'pretrained_backbone_result',
+                    'status': 'experimentally_unverified',
+                    'source': 'clean_seeded_model_study_not_yet_attached',
+                },
+                {
+                    'component': 'federation_topology',
+                    'status': 'simulated',
+                    'source': 'process_local_client_shards',
+                },
+                {
+                    'component': 'remote_client_deployment',
+                    'status': 'unsupported',
+                    'source': 'no_remote_enrollment_or_update_transport',
+                },
+                {
+                    'component': 'knowledge_distillation',
+                    'status': 'unsupported',
+                    'source': 'configuration_rejected_when_enabled',
+                },
+                {
+                    'component': 'ppds',
+                    'status': 'unsupported',
+                    'source': 'configuration_rejected_when_enabled',
+                },
+            ],
+            'limitations': [
+                'The federated workflow is an authenticated in-process simulator, not independent remote-client deployment.',
+                'Model updates and artifacts may leak information even when a formal mechanism is enabled.',
+                'NSL-KDD windows are constructed from source-file row order and are not natural temporal telemetry.',
+                'CPU-only execution is the verified runtime path for this environment unless a CUDA manifest says otherwise.',
+                'A failed or unrun research study must not be inferred from this report.',
+            ],
+            'mia': {
+                'status': 'experimentally_unverified',
+                'protocol': 'leakage_free_shadow_attack',
+                'results': None,
+                'limitation': (
+                    'MIA must be run as a separate fixed-seed evaluation using '
+                    'disjoint attack-train and attack-test partitions.'
+                ),
+            },
+            'metrics': metrics,
+        }
+        output_dir = Path(self.experiment_config['output_dir'])
+        report_path = output_dir / 'report.json'
+        with report_path.open('w', encoding='utf-8') as handle:
+            json.dump(report, handle, indent=2, sort_keys=True)
+            handle.write('\n')
+        self.result_report_path = str(report_path)
+
+        limitations_path = output_dir / 'limitations.md'
+        with limitations_path.open('w', encoding='utf-8') as handle:
+            handle.write('# Experiment limitations\n\n')
+            for limitation in report['limitations']:
+                handle.write(f'- {limitation}\n')
     
     def resume_from_checkpoint(self, checkpoint_path: str):
         """
@@ -870,6 +1225,33 @@ class MainTrainer:
         self.current_round = metadata.get('round_num', 0)
         self.best_val_metric = metadata.get('best_val_metric', 0.0)
         self.early_stop_counter = metadata.get('early_stop_counter', 0)
+
+        # Restore optimizer moments for each local client. A missing client
+        # state is tolerated for legacy checkpoints, but is reported clearly.
+        optimizer_states = metadata.get('optimizer_states', {})
+        clients_by_id = {client.client_id: client for client in self.clients}
+        for client_id, state in optimizer_states.items():
+            client = clients_by_id.get(client_id)
+            if client is None:
+                logger.warning("Checkpoint contains unknown client state: %s", client_id)
+                continue
+            try:
+                client.optimizer.load_state_dict(state)
+            except (KeyError, ValueError, RuntimeError) as exc:
+                raise RuntimeError(
+                    f"Could not restore optimizer state for {client_id}: {exc}"
+                ) from exc
+
+        rng_state = metadata.get('rng_state')
+        if rng_state:
+            self._restore_rng_state(rng_state)
+
+        for client_id, state in metadata.get('dp_states', {}).items():
+            dp_module = self.dp_modules.get(client_id)
+            if dp_module is None:
+                logger.warning("Checkpoint contains unknown DP client state: %s", client_id)
+                continue
+            dp_module.load_state_dict(state)
         
         # Restore privacy state if applicable. For DP-FedAvg the authoritative
         # cumulative budget is restored by AggregationServer.load_checkpoint (which
@@ -882,8 +1264,40 @@ class MainTrainer:
             # Re-sync the trainer's budget handle to the server's restored one.
             if self.privacy_mechanism == 'dp_fedavg':
                 self.privacy_budget = getattr(self.aggregation_server, 'privacy_budget', self.privacy_budget)
+
+        if metadata.get('privacy_ledger'):
+            self.privacy_ledger = PrivacyLedger.from_state_dict(metadata['privacy_ledger'])
+            logger.info(
+                "Restored privacy ledger: %s accounting events, %s releases",
+                len(self.privacy_ledger.accounting_events),
+                len(self.privacy_ledger.release_events),
+            )
         
         logger.info(f"✓ Training resumed from round {self.current_round}")
+
+    @staticmethod
+    def _capture_rng_state() -> Dict[str, Any]:
+        """Capture all process RNG streams used by the simulator."""
+        state: Dict[str, Any] = {
+            'python': random.getstate(),
+            'numpy': np.random.get_state(),
+            'torch': torch.get_rng_state(),
+        }
+        if torch.cuda.is_available():
+            state['torch_cuda'] = torch.cuda.get_rng_state_all()
+        return state
+
+    @staticmethod
+    def _restore_rng_state(state: Dict[str, Any]) -> None:
+        """Restore RNG streams from a checkpoint when they are available."""
+        if 'python' in state:
+            random.setstate(state['python'])
+        if 'numpy' in state:
+            np.random.set_state(state['numpy'])
+        if 'torch' in state:
+            torch.set_rng_state(state['torch'])
+        if torch.cuda.is_available() and 'torch_cuda' in state:
+            torch.cuda.set_rng_state_all(state['torch_cuda'])
 
 
 def create_trainer_from_config(

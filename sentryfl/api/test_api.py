@@ -87,6 +87,8 @@ def test_report_endpoint():
     assert body["experiment_id"] == experiment_id
     assert body["rounds_recorded"] == 3
     assert body["total_rounds"] == 3
+    assert body["mia"]["status"] == "experimentally_unverified"
+    assert "privacy" in body
 
 
 def test_global_model_download_endpoint():

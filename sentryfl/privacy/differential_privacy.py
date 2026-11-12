@@ -112,6 +112,7 @@ class DifferentialPrivacyModule:
         self.accountant = accountant
         self.privacy_engine: Optional[PrivacyEngine] = None
         self.current_epsilon = 0.0
+        self._pending_accountant_history = None
 
         logger.info(
             f"Initialized DifferentialPrivacyModule with ε={epsilon}, "
@@ -193,6 +194,12 @@ class DifferentialPrivacyModule:
                 noise_multiplier=noise_multiplier,
                 max_grad_norm=self.max_grad_norm,
             )
+            if self._pending_accountant_history is not None:
+                # Opacus exposes accountant composition through ``history``;
+                # restore it after make_private has created the accountant.
+                self.privacy_engine.accountant.history = list(
+                    self._pending_accountant_history
+                )
             logger.info(
                 "Privacy engine attached successfully. "
                 f"DP-SGD enabled with noise_multiplier={noise_multiplier:.4f}, "
@@ -203,6 +210,34 @@ class DifferentialPrivacyModule:
             raise RuntimeError(f"Privacy engine attachment failed: {e}")
         
         return self.model, optimizer, data_loader
+
+    def state_dict(self) -> Dict[str, object]:
+        """Serialize DP configuration and accountant composition state."""
+        history = self._pending_accountant_history
+        if self.privacy_engine is not None:
+            history = list(getattr(self.privacy_engine.accountant, 'history', []))
+        return {
+            'target_epsilon': self.target_epsilon,
+            'target_delta': self.target_delta,
+            'max_grad_norm': self.max_grad_norm,
+            'accountant': self.accountant,
+            'current_epsilon': self.current_epsilon,
+            'accountant_history': history or [],
+        }
+
+    def load_state_dict(self, state: Dict[str, object]) -> None:
+        """Restore accountant composition before the next private step."""
+        state_accountant = state.get('accountant', self.accountant)
+        if state_accountant != self.accountant:
+            raise ValueError(
+                f"Checkpoint accountant {state_accountant!r} does not match "
+                f"configured accountant {self.accountant!r}"
+            )
+        self.current_epsilon = float(state.get('current_epsilon', 0.0))
+        history = list(state.get('accountant_history', []))
+        self._pending_accountant_history = history
+        if self.privacy_engine is not None:
+            self.privacy_engine.accountant.history = history
     
     def _compute_noise_multiplier(
         self,

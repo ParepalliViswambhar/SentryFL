@@ -18,6 +18,7 @@ import metricsReducer, {
   selectCommunicationMetrics,
   selectLatestTrainingMetric,
   selectLatestPrivacyMetric,
+  normalizeMetricsEnvelope,
 } from './metricsSlice';
 
 describe('metricsSlice', () => {
@@ -262,6 +263,28 @@ describe('metricsSlice', () => {
     it('should return null for latest metric when no metrics exist', () => {
       const metric = selectLatestTrainingMetric('exp-999')(mockState);
       expect(metric).toBeNull();
+    });
+  });
+
+  describe('backend metric normalization', () => {
+    it('maps nested snake_case privacy and communication metrics to chart fields', () => {
+      const normalized = normalizeMetricsEnvelope({
+        metrics: [{
+          round_number: 3,
+          timestamp: '2024-01-01T00:00:00Z',
+          metrics: {
+            privacy: [{ epsilon: 0.8, delta: 1e-5, mia_success_rate: 0.51 }],
+            communication: [{ round_upload_bytes: 2048, num_clients: 2 }],
+          },
+        }],
+      });
+
+      expect(normalized.privacy[0]).toMatchObject({ round: 3, successRate: 0.51 });
+      expect(normalized.communication[0]).toMatchObject({
+        round: 3,
+        bytesSent: 2048,
+        numClients: 2,
+      });
     });
   });
 });

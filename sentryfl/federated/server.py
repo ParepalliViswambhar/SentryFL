@@ -21,6 +21,7 @@ import torch.nn as nn
 from typing import Dict, List, Tuple, Optional, Any
 import logging
 import copy
+from numbers import Integral
 from pathlib import Path
 import time
 import numpy as np
@@ -115,6 +116,7 @@ class AggregationServer:
 
         # Client update storage
         self.pending_updates: Dict[str, Dict[str, Any]] = {}
+        self.rejected_updates: Dict[str, str] = {}
         self.aggregation_history: List[Dict[str, Any]] = []
 
         # Training state
@@ -175,7 +177,7 @@ class AggregationServer:
         parameters: Dict[str, torch.Tensor],
         num_samples: int,
         metrics: Optional[Dict[str, Any]] = None
-    ):
+    ) -> bool:
         """
         Collect parameter updates from a participating client.
         
@@ -195,16 +197,23 @@ class AggregationServer:
             f"({num_samples} samples)"
         )
         
-        # Validate updates for NaN/Inf
+        # Validate the complete transport contract before accepting an update.
         is_valid, invalid_params = self._validate_parameters(parameters)
-        
-        if not is_valid:
-            logger.warning(
-                f"Client {client_id} sent invalid updates "
-                f"(NaN/Inf in parameters: {invalid_params}). "
-                f"Excluding client from aggregation."
+        rejection_reason = None
+        if not isinstance(num_samples, Integral) or isinstance(num_samples, bool) or num_samples <= 0:
+            rejection_reason = f"num_samples must be a positive integer, got {num_samples!r}"
+        elif not is_valid:
+            rejection_reason = (
+                "non-finite or incompatible parameters: " + ", ".join(invalid_params)
             )
-            return
+
+        if rejection_reason is not None:
+            logger.warning(
+                f"Client {client_id} sent invalid updates ({rejection_reason}). "
+                "Excluding client from aggregation."
+            )
+            self.rejected_updates[client_id] = rejection_reason
+            return False
         
         # Store valid update
         self.pending_updates[client_id] = {
@@ -220,6 +229,8 @@ class AggregationServer:
             f"Accepted updates from client {client_id}. "
             f"Total pending: {len(self.pending_updates)}"
         )
+        self.rejected_updates.pop(client_id, None)
+        return True
     
     def _validate_parameters(
         self,
@@ -237,13 +248,44 @@ class AggregationServer:
         Requirements: 7.9
         """
         invalid_params = []
-        
+        if not isinstance(parameters, dict) or not parameters:
+            return False, ["update must be a non-empty parameter dictionary"]
+
+        # A client may send a strict subset of model parameters for PEFT, but
+        # every transmitted key must belong to the model and all clients in a
+        # round must use the same subset with compatible shape and dtype.
+        model_parameters = dict(self.global_model.named_parameters())
+        expected_names = (
+            set(self.pending_updates[next(iter(self.pending_updates))]['parameters'])
+            if self.pending_updates else None
+        )
         for name, param in parameters.items():
-            if torch.isnan(param).any():
-                invalid_params.append(f"{name} (NaN)")
-            if torch.isinf(param).any():
-                invalid_params.append(f"{name} (Inf)")
-        
+            if name not in model_parameters:
+                invalid_params.append(f"{name} (unknown parameter)")
+                continue
+            if not isinstance(param, torch.Tensor):
+                invalid_params.append(f"{name} (not a tensor)")
+                continue
+            if param.shape != model_parameters[name].shape:
+                invalid_params.append(
+                    f"{name} (shape {tuple(param.shape)} != {tuple(model_parameters[name].shape)})"
+                )
+            if param.dtype != model_parameters[name].dtype:
+                invalid_params.append(
+                    f"{name} (dtype {param.dtype} != {model_parameters[name].dtype})"
+                )
+            if param.is_floating_point() or param.is_complex():
+                if torch.isnan(param).any():
+                    invalid_params.append(f"{name} (NaN)")
+                if torch.isinf(param).any():
+                    invalid_params.append(f"{name} (Inf)")
+
+        if expected_names is not None and set(parameters) != expected_names:
+            invalid_params.append(
+                f"parameter keys {sorted(parameters)} do not match "
+                f"round keys {sorted(expected_names)}"
+            )
+
         return len(invalid_params) == 0, invalid_params
     
     def aggregate_updates(
@@ -268,6 +310,9 @@ class AggregationServer:
         Requirements: 7.3, 7.6, 7.7, 7.8, 7.10, 7.11
         """
         self.current_round = round_num
+
+        if min_clients < 1:
+            raise ValueError(f"min_clients must be >= 1, got {min_clients}")
         
         logger.info(
             f"Starting aggregation for round {round_num} "
@@ -286,7 +331,9 @@ class AggregationServer:
             return {
                 'round': round_num,
                 'status': 'insufficient_clients',
-                'num_clients': len(self.pending_updates)
+                'num_clients': len(self.pending_updates),
+                'accepted_updates': len(self.pending_updates),
+                'rejected_updates': dict(self.rejected_updates),
             }
 
         # Choose aggregation method. DP-FedAvg takes precedence when configured.
@@ -304,6 +351,8 @@ class AggregationServer:
         stats = self._compute_aggregation_statistics()
         stats['round'] = round_num
         stats['num_participating_clients'] = len(self.pending_updates)
+        stats['accepted_updates'] = len(self.pending_updates)
+        stats['rejected_updates'] = dict(self.rejected_updates)
         if self.dp_fedavg is not None:
             stats['aggregation_method'] = 'dp_fedavg'
             stats.update(getattr(self, '_last_dp_stats', {}))
@@ -328,6 +377,7 @@ class AggregationServer:
         
         # Clear pending updates for next round
         self.pending_updates.clear()
+        self.rejected_updates.clear()
         
         return stats
     
@@ -578,6 +628,7 @@ class AggregationServer:
         logger.info(f"Saving checkpoint to {checkpoint_path}")
         
         checkpoint = {
+            'checkpoint_schema_version': 2,
             'round': round_num,
             'model_state_dict': self.global_model.state_dict(),
             'aggregation_history': self.aggregation_history,

@@ -12,7 +12,7 @@ This module provides:
 
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Dict, List, Tuple, Optional
+from typing import Any, Dict, List, Tuple, Optional
 import numpy as np
 import pandas as pd
 from sklearn.preprocessing import LabelEncoder
@@ -47,6 +47,10 @@ class DatasetLoader(ABC):
         """
         pass
 
+    def get_data_contract(self) -> Dict[str, Any]:
+        """Return the dataset/sequence contract used by this loader."""
+        return {}
+
 
 class SMDDatasetLoader(DatasetLoader):
     """
@@ -70,6 +74,11 @@ class SMDDatasetLoader(DatasetLoader):
         """
         self.machine_id = machine_id
         self._feature_dim = None
+        self._data_contract: Dict[str, Any] = {
+            'dataset': 'SMD',
+            'sequence_order': 'natural_machine_telemetry_order',
+            'sequence_construction': 'contiguous rows from each machine file',
+        }
     
     def load_data(self, data_path: str) -> Dict[str, np.ndarray]:
         """
@@ -140,6 +149,12 @@ class SMDDatasetLoader(DatasetLoader):
         except DataValidationError as e:
             # Convert to ValueError for API consistency
             raise ValueError(str(e))
+
+        # Enforce non-empty, finite feature matrices before exposing them to
+        # preprocessing. The explicit checks make malformed one-line/empty
+        # files fail at the dataset boundary rather than later in training.
+        self._validate_data(train_data, 'SMD train')
+        self._validate_data(test_data, 'SMD test')
         
         self._validate_labels(test_labels, 'test_labels')
         
@@ -159,6 +174,12 @@ class SMDDatasetLoader(DatasetLoader):
         
         # Store feature dimension
         self._feature_dim = train_data.shape[1]
+        self._data_contract.update({
+            'machine_id': self.machine_id,
+            'feature_dim': int(self._feature_dim),
+            'train_rows': int(train_data.shape[0]),
+            'test_rows': int(test_data.shape[0]),
+        })
         
         return {
             'train': train_data,
@@ -183,6 +204,10 @@ class SMDDatasetLoader(DatasetLoader):
                 "Feature dimension not available. Call load_data() first."
             )
         return self._feature_dim
+
+    def get_data_contract(self) -> Dict[str, Any]:
+        """Return the validated SMD sequence contract and dimensions."""
+        return dict(self._data_contract)
     
     def _validate_data(self, data: np.ndarray, name: str):
         """
@@ -240,6 +265,8 @@ class SMDDatasetLoader(DatasetLoader):
             raise ValueError(
                 f"{name} must be binary (0 or 1). Found: {unique_labels}"
             )
+        if not np.all(np.equal(unique_labels, np.floor(unique_labels))):
+            raise ValueError(f"{name} must contain integer-valued binary labels")
 
 
 class NSLKDDDatasetLoader(DatasetLoader):
@@ -281,6 +308,14 @@ class NSLKDDDatasetLoader(DatasetLoader):
         """Initialize NSL-KDD loader"""
         self._feature_dim = 41  # NSL-KDD has 41 features
         self._label_encoders = {}
+        self._data_contract: Dict[str, Any] = {
+            'dataset': 'NSL-KDD',
+            'sequence_order': 'source_file_row_order_not_natural_temporal',
+            'sequence_construction': (
+                'contiguous windows over file row order; rows do not represent '
+                'a claimed natural temporal sequence'
+            ),
+        }
     
     def load_data(self, data_path: str) -> Dict[str, np.ndarray]:
         """
@@ -345,9 +380,28 @@ class NSLKDDDatasetLoader(DatasetLoader):
         except DataValidationError as e:
             # Convert to ValueError for API consistency
             raise ValueError(str(e))
+
+        if train_features.ndim != 2 or train_features.shape[1] != self._feature_dim:
+            raise ValueError(
+                f"NSL-KDD train data must have shape [N, {self._feature_dim}], "
+                f"got {train_features.shape}"
+            )
+        if test_features.ndim != 2 or test_features.shape[1] != self._feature_dim:
+            raise ValueError(
+                f"NSL-KDD test data must have shape [N, {self._feature_dim}], "
+                f"got {test_features.shape}"
+            )
+        if train_features.shape[0] == 0 or test_features.shape[0] == 0:
+            raise ValueError("NSL-KDD train and test data must not be empty")
         
         self._validate_labels(train_labels, 'train_labels')
         self._validate_labels(test_labels, 'test_labels')
+        self._data_contract.update({
+            'feature_dim': self._feature_dim,
+            'train_rows': int(train_features.shape[0]),
+            'test_rows': int(test_features.shape[0]),
+            'categorical_features': list(self.CATEGORICAL_FEATURES),
+        })
         
         return {
             'train': train_features,
@@ -366,6 +420,10 @@ class NSLKDDDatasetLoader(DatasetLoader):
         **Validates Requirement:** 1.1
         """
         return self._feature_dim
+
+    def get_data_contract(self) -> Dict[str, Any]:
+        """Return the NSL-KDD sequence construction disclosure."""
+        return dict(self._data_contract)
     
     def _process_data(self, df: pd.DataFrame, is_train: bool) -> Tuple[np.ndarray, np.ndarray]:
         """
@@ -461,6 +519,8 @@ class NSLKDDDatasetLoader(DatasetLoader):
             raise ValueError(
                 f"{name} must be binary (0 or 1). Found: {unique_labels}"
             )
+        if not np.all(np.equal(unique_labels, np.floor(unique_labels))):
+            raise ValueError(f"{name} must contain integer-valued binary labels")
 
 
 class FederatedDataPartitioner:

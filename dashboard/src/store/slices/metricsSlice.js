@@ -141,6 +141,50 @@ export const fetchAllMetrics = createAsyncThunk(
 );
 
 /**
+ * Normalize backend metric vocabulary once at the API boundary. The Python
+ * logger uses snake_case and records measured upload bytes, while chart
+ * components use the existing camelCase display vocabulary. Keeping both raw
+ * keys and normalized aliases preserves export/debug information without
+ * making each visualization guess at the transport shape.
+ */
+const normalizeMetric = (metric = {}, envelope = {}) => {
+  const round = metric.round ?? metric.round_number ?? envelope.round_number ?? envelope.round;
+  const timestamp = metric.timestamp ?? envelope.timestamp;
+  const miaSuccessRate = metric.mia_success_rate ?? metric.miaSuccessRate ?? metric.success_rate ?? metric.successRate;
+  const uploadBytes = metric.bytesSent
+    ?? metric.bytes_sent
+    ?? metric.upload_bytes
+    ?? metric.round_upload_bytes
+    ?? metric.bytes_transferred;
+  const downloadBytes = metric.bytesReceived ?? metric.bytes_received ?? metric.download_bytes;
+  const clients = metric.numClients
+    ?? metric.num_clients
+    ?? metric.num_participating_clients
+    ?? metric.participating_clients;
+
+  return {
+    ...metric,
+    round,
+    timestamp,
+    epsilon: metric.epsilon ?? metric.epsilon_consumed,
+    delta: metric.delta,
+    mia_success_rate: miaSuccessRate,
+    successRate: miaSuccessRate,
+    bytesSent: uploadBytes,
+    bytesReceived: downloadBytes,
+    numClients: clients,
+    participating_clients: clients,
+  };
+};
+
+const flattenCategoryEntries = (entries = []) => entries.flatMap((entry) => {
+  if (Array.isArray(entry?.data)) {
+    return entry.data.map((metric) => normalizeMetric(metric, entry));
+  }
+  return [normalizeMetric(entry)];
+});
+
+/**
  * Normalize a metrics response into flat, chart-ready arrays keyed by round.
  * Tolerates three shapes: the paginated envelope (`{ metrics: [...] }`), a bare
  * array of round entries, or an already-split `{ training, privacy,
@@ -156,9 +200,9 @@ export const normalizeMetricsEnvelope = (data) => {
     (Array.isArray(data.training) || Array.isArray(data.privacy) || Array.isArray(data.communication))
   ) {
     return {
-      training: data.training || [],
-      privacy: data.privacy || [],
-      communication: data.communication || [],
+      training: (data.training || []).map((metric) => normalizeMetric(metric)),
+      privacy: (data.privacy || []).map((metric) => normalizeMetric(metric)),
+      communication: (data.communication || []).map((metric) => normalizeMetric(metric)),
     };
   }
 
@@ -171,17 +215,17 @@ export const normalizeMetricsEnvelope = (data) => {
     const timestamp = entry.timestamp;
     const nested = entry.metrics || {};
     const training = pickLast(nested.training);
-    result.training.push({
+    result.training.push(normalizeMetric({
       ...(training || {}),
       round,
       loss: entry.global_loss ?? training?.loss,
       accuracy: entry.global_accuracy ?? training?.accuracy,
       timestamp,
-    });
+    }, entry));
     const privacy = pickLast(nested.privacy);
-    if (privacy) result.privacy.push({ ...privacy, round, timestamp });
+    if (privacy) result.privacy.push(normalizeMetric({ ...privacy, round, timestamp }, entry));
     const communication = pickLast(nested.communication);
-    if (communication) result.communication.push({ ...communication, round, timestamp });
+    if (communication) result.communication.push(normalizeMetric({ ...communication, round, timestamp }, entry));
   });
 
   const byRound = (a, b) => (a.round ?? 0) - (b.round ?? 0);
@@ -198,8 +242,8 @@ export const normalizeMetricsEnvelope = (data) => {
  * fetch response can never leave an object where the reducers expect an array.
  */
 const toMetricArray = (data) => {
-  if (Array.isArray(data)) return data;
-  if (Array.isArray(data?.metrics)) return data.metrics;
+  if (Array.isArray(data)) return data.map((metric) => normalizeMetric(metric));
+  if (Array.isArray(data?.metrics)) return flattenCategoryEntries(data.metrics);
   return [];
 };
 

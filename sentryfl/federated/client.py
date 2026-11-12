@@ -75,7 +75,12 @@ class FederatedClient:
         batch_size: int = 32,
         learning_rate: float = 0.001,
         device: str = 'cpu',
-        cache_dir: Optional[str] = None
+        cache_dir: Optional[str] = None,
+        num_workers: int = 0,
+        pin_memory: bool = False,
+        prefetch_factor: int = 2,
+        persistent_workers: bool = False,
+        drop_last: bool = False,
     ):
         """
         Initialize federated client.
@@ -97,6 +102,15 @@ class FederatedClient:
         self.device = device
         self.batch_size = batch_size
         self.learning_rate = learning_rate
+        if num_workers < 0:
+            raise ValueError(f"num_workers must be >= 0, got {num_workers}")
+        if prefetch_factor <= 0:
+            raise ValueError(f"prefetch_factor must be > 0, got {prefetch_factor}")
+        self.num_workers = num_workers
+        self.pin_memory = pin_memory
+        self.prefetch_factor = prefetch_factor
+        self.persistent_workers = persistent_workers and num_workers > 0
+        self.drop_last = drop_last
         
         # Validate local data
         if not isinstance(local_data, tuple) or len(local_data) != 2:
@@ -145,7 +159,7 @@ class FederatedClient:
         logger.info(
             f"Initialized FederatedClient '{client_id}' with "
             f"{self.data_size} samples, batch_size={batch_size}, "
-            f"lr={learning_rate}, device={device}"
+            f"lr={learning_rate}, workers={num_workers}, device={device}"
         )
     
     def receive_global_model(self, global_parameters: Dict[str, torch.Tensor]):
@@ -230,12 +244,19 @@ class FederatedClient:
         )
         
         # Create DataLoader
-        data_loader = DataLoader(
-            dataset,
-            batch_size=self.batch_size,
-            shuffle=True,
-            drop_last=False  # Include all data even if last batch is smaller
-        )
+        loader_kwargs = {
+            'batch_size': self.batch_size,
+            'shuffle': True,
+            'drop_last': self.drop_last,
+            'num_workers': self.num_workers,
+            'pin_memory': self.pin_memory,
+        }
+        if self.num_workers > 0:
+            loader_kwargs.update({
+                'prefetch_factor': self.prefetch_factor,
+                'persistent_workers': self.persistent_workers,
+            })
+        data_loader = DataLoader(dataset, **loader_kwargs)
         
         return data_loader
     
@@ -424,7 +445,10 @@ class FederatedClient:
         Args:
             adms_module: ADMSModule instance with generated mask
         """
-        for name, param in self.model.named_parameters():
+        # Apply masks against the canonical names even when Opacus has wrapped
+        # the client model.
+        parameter_model = getattr(self.model, '_module', self.model)
+        for name, param in parameter_model.named_parameters():
             if param.grad is not None and name in adms_module.parameter_mask:
                 mask = adms_module.parameter_mask[name].to(param.device)
                 param.grad.data *= mask
@@ -450,7 +474,11 @@ class FederatedClient:
         total_params = 0
         trainable_params = 0
         
-        for name, param in self.model.named_parameters():
+        # Opacus exposes parameters as `_module.<name>` after wrapping the
+        # client model. The aggregation server contracts on canonical model
+        # names, so export from the wrapped module's underlying model.
+        parameter_model = getattr(self.model, '_module', self.model)
+        for name, param in parameter_model.named_parameters():
             total_params += param.numel()
             if param.requires_grad:
                 # Detach from computation graph and move to CPU

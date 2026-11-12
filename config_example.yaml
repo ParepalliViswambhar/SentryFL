@@ -15,6 +15,7 @@ data:
   normalize: true
   train_ratio: 0.7
   val_ratio: 0.15
+  chunk_size: 4096  # bounded preprocessing window chunks
 
 model:
   backbone: "bert-base-uncased"
@@ -26,6 +27,9 @@ training:
   num_rounds: 100
   local_epochs: 5
   batch_size: 32
+  num_workers: 0  # increase only after measuring the host; 0 is portable default
+  pin_memory: false
+  prefetch_factor: 2
   learning_rate: 0.001
   optimizer: "adam"  # Options: "adam", "sgd", "adamw"
   weight_decay: 0.0001
@@ -76,6 +80,7 @@ optimization:
   quantization_enabled: false
   quantization_dtype: "int8"
   quantization_calibration_batches: 10  # Training batches used for post-training INT8 calibration
+  # Unsupported until wired end-to-end; enabling it fails configuration validation.
   knowledge_distillation_enabled: false
   distillation_temperature: 3.0
   distillation_alpha: 0.5

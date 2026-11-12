@@ -54,6 +54,8 @@ import {
 import { fetchExperiments, selectAllExperiments, selectExperimentsStatus, selectExperimentsError } from '../store/slices/experimentsSlice';
 import LoadingSpinner from '../components/LoadingSpinner';
 import { buildBaseChartOptions, mergeChartOptions, seriesColor, withAlpha } from '../utils/chartTheme';
+import { PageHeader, Panel } from '../components/ui';
+import CompareArrowsIcon from '@mui/icons-material/CompareArrows';
 
 ChartJS.register(
   CategoryScale,
@@ -426,12 +428,11 @@ Legend: *** = 99% confidence, ** = 95% confidence, * = 90% confidence
 
   return (
     <Box>
-      <Typography variant="h4" gutterBottom>
-        Experiment Comparison
-      </Typography>
-      <Typography variant="body1" color="text.secondary" paragraph>
-        Compare performance metrics across multiple experiments
-      </Typography>
+      <PageHeader
+        title="Experiment Comparison"
+        subtitle="Compare performance metrics across multiple experiments · provenance, utility, communication, and latency."
+        icon={<CompareArrowsIcon />}
+      />
 
       {error && (
         <Alert severity="error" sx={{ mb: 2 }}>
@@ -440,7 +441,7 @@ Legend: *** = 99% confidence, ** = 95% confidence, * = 90% confidence
       )}
 
       {/* Experiment Selection */}
-      <Paper sx={{ p: 3, mb: 3 }}>
+      <Panel sx={{ mb: 3 }}>
         <Typography variant="h6" gutterBottom>
           Select Experiments to Compare
         </Typography>
@@ -478,7 +479,7 @@ Legend: *** = 99% confidence, ** = 95% confidence, * = 90% confidence
             ))}
           </Grid>
         )}
-      </Paper>
+      </Panel>
 
       {/* Comparison Results */}
       {selectedExperiments.length === 0 ? (

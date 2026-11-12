@@ -31,6 +31,62 @@ SentryFL is architected as a three-tier system:
 2. **Tier 2**: Node.js + Express API Server (REST and WebSocket endpoints, JWT auth, PostgreSQL persistence for users and audit logs)
 3. **Tier 3**: Python Backend (ML training, federated learning, privacy mechanisms)
 
+## ✅ Current implementation status
+
+The following features are implemented in the current repository and covered by
+focused tests or existing integration tests:
+
+- **Reproducible experiment manifests**: training runs record the resolved
+  configuration, seed, Git revision/dirty state, dataset file checksums, split
+  checksum, model configuration, hardware metadata, command, and dependency
+  lock fingerprints in `manifest.json`.
+- **Leakage-aware temporal preprocessing**: deterministic, non-overlapping
+  train/validation/test boundaries; training-only normalization; bounded window
+  materialization; and an iterator that yields windows in configurable chunks.
+  NSL-KDD reports its source-file row order as constructed ordering rather than
+  natural telemetry time.
+- **Federated aggregation contracts**: update key/shape/finite-value validation,
+  sample-weighted FedAvg checks, round metadata, and checkpoint-compatible
+  client/server state handling.
+- **Resumable privacy evidence**: a privacy ledger records cumulative
+  accounting events separately from potentially leaky model/update/artifact
+  releases and can be restored from checkpoints. MIA evaluation now exposes
+  explicit member/non-member and attack-train/attack-test protocol metadata.
+- **Backend report data**: experiment report data includes provenance, evidence
+  statuses, privacy summaries, limitations, and manifest information for the
+  dashboard.
+- **Additional authenticated dashboard surfaces**:
+  - Federated monitor with persisted round activity, accepted/rejected updates,
+    payload bytes, and stale-state warnings.
+  - Privacy evaluation with formal-accounting and empirical-MIA evidence shown
+    separately.
+  - Synthetic weighted-FedAvg aggregation visualizer with an explicitly
+    incorrect unweighted negative control.
+  - Authorized global-artifact/client-onboarding page that clearly states that
+    remote client enrollment is not implemented.
+- **Dashboard navigation and metric handling**: the new pages are protected by
+  the existing authentication shell, and metric normalization supports privacy,
+  communication, report, and live-event data without fabricating missing values.
+
+These features are implemented, but they do **not** by themselves establish
+publication-ready benchmark results, end-to-end privacy for every release, or
+physical multi-machine federated deployment.
+
+### Deliberately not claimed as complete
+
+- PPDS/VAE synthetic-data generation is not implemented; knowledge distillation
+  remains unsupported in the main trainer and must not be enabled as if it were
+  active.
+- The web workflow remains a process-local federated simulator. Independent
+  remote client enrollment and authenticated update submission are not
+  implemented.
+- MIA utilities and privacy accounting are available, but a complete
+  publication-grade privacy/utility sweep still requires executed experiments
+  with recorded results.
+- INT8 post-training quantization is available, but completed FP32-vs-INT8
+  accuracy/latency/payload tables still require measured experiment artifacts.
+- Scaling utilities do not prove physical deployment performance at 500 clients.
+
 ## 🔬 SentryFL v2 — Efficient-Private Adaptation
 
 A research upgrade over the original PeFAD extension that fixes verified gaps in the
@@ -133,7 +189,7 @@ is an optional non-DP alternative.
 - **FFA-LoRA, LoRA, and ADMS**: parameter-efficient updates and reduced communication; FFA-LoRA is the recommended v2 method.
 - **Byzantine robustness**: optional trimmed-mean aggregation.
 - **INT8 post-training quantization**: calibration and conversion of the completed global FP32 model for edge inference.
-- **Knowledge distillation and reproducibility tooling**: optional optimization and seeded experiment/checkpoint reporting.
+- **Reproducibility tooling**: seeded experiment manifests, bounded preprocessing, and checkpoint reporting. Knowledge distillation remains an explicit unsupported configuration until it is wired end-to-end.
 
 ### Quantization and Training Time
 
@@ -442,6 +498,13 @@ parameter_efficiency:
 - **[HYPERPARAMETERS.md](HYPERPARAMETERS.md)**: Hyperparameter tuning guidelines and recommendations
 - **[TROUBLESHOOTING.md](TROUBLESHOOTING.md)**: Common errors and solutions
 - **[PAPER_GAP_ANALYSIS.md](PAPER_GAP_ANALYSIS.md)**: PeFAD/proposal implementation status and remaining research work
+- **[docs/REPOSITORY_AUDIT.md](docs/REPOSITORY_AUDIT.md)**: repository-specific implementation audit
+- **[docs/PRD.md](docs/PRD.md)**: product requirements and acceptance criteria
+- **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**: current and proposed architecture
+- **[docs/RESEARCH_VALIDATION.md](docs/RESEARCH_VALIDATION.md)**: research protocols and evidence rules
+- **[docs/IMPLEMENTATION_ROADMAP.md](docs/IMPLEMENTATION_ROADMAP.md)**: dependency-aware milestones
+- **[docs/TEST_PLAN.md](docs/TEST_PLAN.md)**: automated and manual test strategy
+- **[docs/RISK_REGISTER.md](docs/RISK_REGISTER.md)**: risks and unresolved scope decisions
 
 ## 🏗️ Project Structure
 
@@ -459,12 +522,13 @@ SentryFL/
 │   ├── trainer.py               # Main training orchestration
 │   └── cli.py                   # Command-line interface
 ├── tests/                       # Unit and integration tests
+├── docs/                        # Audit, PRD, architecture, validation, and roadmap
 ├── config_example.yaml          # Example configuration file
 ├── requirements.txt             # Python dependencies
 ├── README.md                    # This file
 ├── INSTALL.md                   # Installation guide
 ├── DATASETS.md                  # Dataset documentation
-├── ARCHITECTURE.md              # Architecture documentation
+├── ARCHITECTURE.md              # Detailed architecture documentation
 ├── HYPERPARAMETERS.md           # Hyperparameter tuning guide
 └── TROUBLESHOOTING.md           # Troubleshooting guide
 ```

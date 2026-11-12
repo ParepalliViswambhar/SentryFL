@@ -55,6 +55,9 @@ class ConfigurationSystem:
             'num_rounds': 100,
             'local_epochs': 5,
             'batch_size': 32,
+            'num_workers': 0,
+            'pin_memory': False,
+            'prefetch_factor': 2,
             'learning_rate': 0.001,
             'optimizer': 'adam',
             'weight_decay': 0.0001,
@@ -93,6 +96,7 @@ class ConfigurationSystem:
             'normalize': True,
             'train_ratio': 0.7,
             'val_ratio': 0.15,
+            'chunk_size': 4096,
         },
         'optimization': {
             'quantization_enabled': False,
@@ -116,6 +120,8 @@ class ConfigurationSystem:
         'privacy.delta': {'type': float, 'min': 0.0, 'max': 1.0},
         'privacy.max_grad_norm': {'type': (int, float), 'min': 0.0, 'exclusive_min': True},
         'training.batch_size': {'type': int, 'min': 1},
+        'training.num_workers': {'type': int, 'min': 0},
+        'training.prefetch_factor': {'type': int, 'min': 1},
         'training.local_epochs': {'type': int, 'min': 1},
         'training.num_rounds': {'type': int, 'min': 1},
         'training.learning_rate': {'type': float, 'min': 0.0, 'exclusive_min': True},
@@ -125,6 +131,7 @@ class ConfigurationSystem:
         'data.stride': {'type': int, 'min': 1},
         'data.train_ratio': {'type': float, 'min': 0.0, 'max': 1.0},
         'data.val_ratio': {'type': float, 'min': 0.0, 'max': 1.0},
+        'data.chunk_size': {'type': int, 'min': 1},
         'experiment.checkpoint_interval': {'type': int, 'min': 1},
         'experiment.log_interval': {'type': int, 'min': 1},
         'experiment.seed': {'type': int, 'min': 0},
@@ -390,6 +397,20 @@ class ConfigurationSystem:
                 errors.append("'privacy.epsilon' must be specified when privacy is enabled")
             if self.config['privacy']['delta'] is None:
                 errors.append("'privacy.delta' must be specified when privacy is enabled")
+
+        # Explicitly reject experimental flags that are not wired through the
+        # training path. A silently ignored PPDS/KD setting would produce a
+        # success-shaped result with unsupported claims.
+        if self.config['parameter_efficiency'].get('ppds_enabled', False):
+            errors.append(
+                "'parameter_efficiency.ppds_enabled' is unsupported: PPDS/VAE "
+                "is not implemented end-to-end"
+            )
+        if self.config['optimization'].get('knowledge_distillation_enabled', False):
+            errors.append(
+                "'optimization.knowledge_distillation_enabled' is unsupported: "
+                "knowledge distillation is not wired into MainTrainer"
+            )
         
         # Validate dataset choice
         valid_datasets = ['SMD', 'NSL-KDD']

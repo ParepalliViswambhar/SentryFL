@@ -1761,4 +1761,30 @@ describe('Experiment Management API', () => {
       expect(response.body.message).toContain('Failed to generate report');
     });
   });
+
+  describe('GET /api/experiments/:id/report/data', () => {
+    test('should return the structured report bundle for the experiment owner', async () => {
+      const experimentId = '123e4567-e89b-12d3-a456-426614174105';
+      const reportData = {
+        experiment_id: experimentId,
+        evidence: [{ component: 'training_metrics', status: 'measured' }],
+        limitations: ['simulated federation topology'],
+        privacy: { mechanism: 'dp_fedavg', target_epsilon: 2.0 },
+      };
+
+      axiosMock.onGet(`/train/${experimentId}/status`).reply(200, {
+        status: 'completed',
+        userId: 'test-user-123',
+      });
+      axiosMock.onGet(`/train/${experimentId}/report`).reply(200, reportData);
+
+      const response = await request(app)
+        .get(`/api/experiments/${experimentId}/report/data`)
+        .set('Authorization', `Bearer ${testToken}`)
+        .expect('Content-Type', /json/)
+        .expect(200);
+
+      expect(response.body).toEqual(reportData);
+    });
+  });
 });

@@ -78,7 +78,13 @@ const MIAVisualization = ({ miaResults = [], accountingMethod = 'RDP' }) => {
 
   // Sort MIA results by epsilon for proper display
   const sortedResults = useMemo(() => {
-    return [...miaResults].sort((a, b) => a.epsilon - b.epsilon);
+    return miaResults
+      .map((result) => ({
+        ...result,
+        successRate: result.successRate ?? result.mia_success_rate ?? result.miaSuccessRate,
+      }))
+      .filter((result) => Number.isFinite(result.epsilon) && Number.isFinite(result.successRate))
+      .sort((a, b) => a.epsilon - b.epsilon);
   }, [miaResults]);
 
   // Prepare success rate vs epsilon chart data

@@ -2,11 +2,13 @@
 
 import asyncio
 import io
+import json
 import logging
 import os
 import threading
 import time
 from copy import deepcopy
+from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
 import httpx
@@ -373,6 +375,14 @@ class ExperimentRunner:
         with self._lock:
             history = list(self.metrics_history)
         latest = history[-1] if history else {}
+        result_report = {}
+        result_report_path = getattr(self.trainer, "result_report_path", None)
+        if result_report_path:
+            try:
+                with Path(result_report_path).open("r", encoding="utf-8") as handle:
+                    result_report = json.load(handle)
+            except (OSError, json.JSONDecodeError):
+                logger.warning("Could not load result report for %s", self.experiment_id)
         duration = None
         if self.start_time is not None:
             end = self.end_time if self.end_time is not None else time.time()
@@ -390,6 +400,17 @@ class ExperimentRunner:
             "final_accuracy": latest.get("global_accuracy"),
             "rounds_recorded": len(history),
             "config": self.config.model_dump() if hasattr(self.config, "model_dump") else {},
+            "manifest_path": getattr(self.trainer, "manifest_path", None),
+            "result_report_path": result_report_path,
+            "report_schema_version": result_report.get("schema_version"),
+            "evidence_status": "measured" if history else "experimentally_unverified",
+            "evidence": result_report.get("evidence", []),
+            "limitations": result_report.get("limitations", []),
+            "privacy": result_report.get("privacy", {}),
+            "mia": result_report.get("mia", {
+                "status": "experimentally_unverified",
+                "results": None,
+            }),
         }
 
     def get_model_artifact(self) -> bytes:
