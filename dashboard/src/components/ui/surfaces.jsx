@@ -20,12 +20,9 @@ export function PageHeader({ title, subtitle, actions, icon }) {
   return (
     <Stack
       direction={{ xs: 'column', sm: 'row' }}
-      justifyContent="space-between"
-      alignItems={{ xs: 'flex-start', sm: 'center' }}
-      gap={2}
-      sx={{ mb: 3 }}
+      sx={{ mb: 3, justifyContent: 'space-between', alignItems: { xs: 'flex-start', sm: 'center' }, gap: 2 }}
     >
-      <Stack direction="row" alignItems="center" gap={1.75}>
+      <Stack direction="row" sx={{ alignItems: 'center', gap: 1.75 }}>
         {icon && (
           <Box
             sx={(theme) => ({
@@ -74,7 +71,7 @@ export function PageHeader({ title, subtitle, actions, icon }) {
         </Box>
       </Stack>
       {actions && (
-        <Stack direction="row" gap={1} flexWrap="wrap">
+        <Stack direction="row" sx={{ gap: 1, flexWrap: 'wrap' }}>
           {actions}
         </Stack>
       )}
@@ -95,10 +92,7 @@ export function Panel({ title, subtitle, action, children, sx, contentSx }) {
       {(title || action) && (
         <Stack
           direction="row"
-          alignItems="center"
-          justifyContent="space-between"
-          gap={2}
-          sx={{ px: 2.5, py: 2, borderBottom: (t) => `1px solid ${t.palette.divider}` }}
+          sx={{ px: 2.5, py: 2, borderBottom: (t) => `1px solid ${t.palette.divider}`, alignItems: 'center', justifyContent: 'space-between', gap: 2 }}
         >
           <Box>
             {title && (
@@ -173,7 +167,7 @@ export function StatTile({ label, value, icon, accent = 'primary', hint, sx }) {
       ]}
     >
       <Box sx={{ position: 'relative', zIndex: 1 }}>
-        <Stack direction="row" justifyContent="space-between" alignItems="flex-start" gap={1}>
+        <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'flex-start', gap: 1 }}>
           <Typography variant="overline" color="text.secondary" sx={{ letterSpacing: '0.06em' }}>
             {label}
           </Typography>
@@ -203,7 +197,7 @@ StatTile.propTypes = {
 /** Centered placeholder for empty lists / no-data panels, with a glass icon halo. */
 export function EmptyState({ icon, title, description, action, sx }) {
   return (
-    <Stack alignItems="center" justifyContent="center" gap={1.5} sx={{ py: 6, px: 3, textAlign: 'center', ...sx }}>
+    <Stack sx={{ py: 6, px: 3, textAlign: 'center', alignItems: 'center', justifyContent: 'center', gap: 1.5, ...sx }}>
       {icon && (
         <Box
           sx={(theme) => ({

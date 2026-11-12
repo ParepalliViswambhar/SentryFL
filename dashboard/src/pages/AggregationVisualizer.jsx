@@ -69,7 +69,7 @@ const AggregationVisualizer = () => {
 
 const AlertLike = () => (
   <Box sx={{ p: 2, borderRadius: 2, bgcolor: 'warning.main', color: 'warning.contrastText' }}>
-    <Stack direction="row" spacing={1} alignItems="center">
+    <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
       <Chip label="SYNTHETIC DEMONSTRATION" size="small" sx={{ bgcolor: 'rgba(0,0,0,.18)', color: 'inherit', fontWeight: 800 }} />
       <Typography variant="body2">This view compares a correct weighted result with an explicitly incorrect unweighted result.</Typography>
     </Stack>

@@ -30,7 +30,7 @@ const ExperimentList = () => {
           : `${experiments.length} tracked experiment${experiments.length === 1 ? '' : 's'} with owner-scoped access.`}
         icon={<ScienceIcon />}
         actions={(
-          <Stack direction="row" gap={1} alignItems="center">
+          <Stack direction="row" sx={{ gap: 1, alignItems: 'center' }}>
             <Tooltip title="Refresh experiments"><IconButton aria-label="Refresh experiments" onClick={() => dispatch(fetchExperiments())}><RefreshIcon /></IconButton></Tooltip>
             <Button component={RouterLink} to="/experiments/new" variant="contained">New experiment</Button>
           </Stack>

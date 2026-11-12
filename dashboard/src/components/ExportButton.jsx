@@ -218,11 +218,7 @@ const ExportButton = ({
                 value={dpi}
                 onChange={(e) => setDpi(parseInt(e.target.value, 10))}
                 fullWidth
-                inputProps={{
-                  min: 72,
-                  max: 600,
-                  step: 1,
-                }}
+                slotProps={{ htmlInput: { min: 72, max: 600, step: 1 } }}
                 helperText="Higher DPI = better quality but larger file size"
               />
               <ButtonGroup size="small" fullWidth>

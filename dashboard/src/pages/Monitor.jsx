@@ -123,7 +123,7 @@ const Monitor = () => {
                           {metric.timestamp ? new Date(metric.timestamp).toLocaleString() : 'timestamp unavailable'}
                         </Typography>
                       </Box>
-                      <Stack direction="row" spacing={1} flexWrap="wrap" justifyContent="flex-end">
+                      <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', justifyContent: 'flex-end' }}>
                         <Chip size="small" label={`loss ${valueOrDash(metric.loss, (item) => Number(item).toFixed(4))}`} />
                         <Chip size="small" label={`accuracy ${valueOrDash(metric.accuracy, (item) => Number(item).toFixed(3))}`} />
                       </Stack>
