@@ -10,7 +10,10 @@ COPY requirements.txt setup.py README.md ./
 COPY sentryfl ./sentryfl
 
 RUN pip install --upgrade pip \
-    && pip install .
+    && sed -e '/^torch>=/d' -e '/^torchvision>=/d' -e '/^torchaudio>=/d' requirements.txt > /tmp/requirements-docker.txt \
+    && pip install --index-url https://download.pytorch.org/whl/cpu torch torchvision torchaudio \
+    && pip install -r /tmp/requirements-docker.txt \
+    && pip install --no-deps .
 
 EXPOSE 5000
 

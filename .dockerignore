@@ -9,6 +9,10 @@ dashboard/node_modules
 dashboard/dist
 api-server/node_modules
 *.log
+dist
+build
+coverage
+.env
 evaluation_results
 final_validation_results
 mia_evaluation_results

@@ -27,11 +27,11 @@ services:
       PORT: '3000'
       PYTHON_BACKEND_URL: http://python-backend:5000
       BACKEND_TIMEOUT_MS: ${BACKEND_TIMEOUT_MS:-30000}
-      CORS_ORIGIN: ${CORS_ORIGIN:-https://localhost}
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost}
       JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env for deployment}
       API_SERVER_URL: http://api-server:3000
       CACHE_TTL_SECONDS: ${CACHE_TTL_SECONDS:-300}
-      DATABASE_URL: ${DATABASE_URL:-postgresql://sentryfl:sentryfl@postgres:5432/sentryfl}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-sentryfl}:${POSTGRES_PASSWORD:-sentryfl}@postgres:5432/${POSTGRES_DB:-sentryfl}
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://localhost:3000/health').then(r => { if (!r.ok) process.exit(1); }).catch(() => process.exit(1))"]
       interval: 30s
@@ -54,7 +54,7 @@ services:
         VITE_API_BASE_URL: /api
         VITE_WS_URL: /
     healthcheck:
-      test: ["CMD", "wget", "--spider", "--quiet", "http://localhost/"]
+      test: ["CMD", "wget", "--spider", "--quiet", "http://127.0.0.1/"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -107,7 +107,7 @@ services:
     volumes:
       - nginx-certs:/etc/nginx/certs
     healthcheck:
-      test: ["CMD", "wget", "--spider", "--quiet", "http://localhost/health"]
+      test: ["CMD", "wget", "--spider", "--quiet", "http://127.0.0.1/health"]
       interval: 30s
       timeout: 5s
       retries: 3
