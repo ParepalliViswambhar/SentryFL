@@ -10,7 +10,7 @@
  */
 
 import { useEffect } from 'react';
-import { Routes, Route } from 'react-router-dom';
+import { Navigate, Routes, Route } from 'react-router-dom';
 import { Provider, useDispatch, useSelector } from 'react-redux';
 import store from './store';
 import { verifyToken } from './store/slices/authSlice';
@@ -99,7 +99,7 @@ function RoleHome() {
 
 function AdminRoute({ children }) {
   const user = useSelector(selectCurrentUser);
-  return user?.role === 'admin' || !user ? children : <ClientWorkspace />;
+  return user?.role === 'admin' || !user ? children : <Navigate to="/client" replace />;
 }
 
 function AuthBootstrap({ children }) {

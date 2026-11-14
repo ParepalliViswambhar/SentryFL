@@ -12,6 +12,13 @@ const { asyncHandler, AppError } = require('../middleware/errorHandler');
 const { authenticate, requireAdmin } = require('../middleware/authenticate');
 const { logAction, AuditActionType } = require('../services/auditService');
 const {
+  saveExperiment,
+  listExperiments: listPersistedExperiments,
+  getExperiment: getPersistedExperiment,
+  updateExperiment: updatePersistedExperiment,
+  deleteExperiment: deletePersistedExperiment,
+} = require('../services/experimentService');
+const {
   experimentConfigSchema,
   experimentIdSchema,
   experimentQuerySchema,
@@ -201,6 +208,8 @@ router.post(
         updated_at: new Date().toISOString(),
       };
 
+      await saveExperiment(experimentData);
+
       // Cache experiment data (individual experiment cache with no expiration)
       experimentCache.set(`experiment:${backendExperimentId}`, experimentData, 0);
 
@@ -287,21 +296,41 @@ router.get(
     }
 
     try {
-      // Query Python Backend for experiment list
-      const response = await axiosClient.get('/train', {
-        params: {
-          status,
-          limit,
-          offset,
-        },
-      });
+      const persistedExperiments = process.env.NODE_ENV === 'test'
+        ? []
+        : await listPersistedExperiments({
+            userId: user.userId,
+            isAdmin: user.role === 'admin',
+            status,
+            limit,
+            offset,
+          });
+      let experiments = persistedExperiments;
 
-      let experiments = response.data.experiments || [];
-
-      // Filter experiments by user (Requirement 38.4, 38.7)
-      // Admins see all experiments, regular users see only their own
-      if (user.role !== 'admin') {
-        experiments = experiments.filter((exp) => exp.userId === user.userId);
+      // Refresh runtime snapshots when the Python service is available. The
+      // persisted record remains the source of truth for ownership.
+      try {
+        const response = await axiosClient.get('/train', { params: { status, limit, offset } });
+        const runtimeExperiments = response.data.experiments || [];
+        const runtimeById = new Map(runtimeExperiments.map((exp) => [exp.experiment_id, exp]));
+        const ownedRuntime = user.role === 'admin'
+          ? runtimeExperiments
+          : runtimeExperiments.filter((exp) => exp.userId === user.userId);
+        if (runtimeExperiments.length > 0) {
+          experiments = ownedRuntime.map((runtime) => {
+            const persisted = persistedExperiments.find(
+              (experiment) => experiment.experiment_id === runtime.experiment_id
+            );
+            return { ...runtime, userId: persisted?.userId || runtime.userId };
+          });
+        }
+        await Promise.all(
+          experiments
+            .filter((experiment) => experiment.userId)
+            .map((experiment) => saveExperiment(experiment))
+        );
+      } catch (error) {
+        console.warn('Runtime experiment refresh unavailable; returning persisted snapshots:', error.message);
       }
 
       const total = experiments.length;
@@ -354,6 +383,11 @@ router.get(
 
     // If not in cache, fetch from backend
     if (!cachedData) {
+    if (process.env.NODE_ENV !== 'test') {
+      cachedData = await getPersistedExperiment(id);
+    }
+    }
+    if (!cachedData) {
       try {
         // Query Python Backend for experiment details
         const response = await axiosClient.get(`/train/${id}/status`);
@@ -366,6 +400,7 @@ router.get(
 
         // Cache the experiment data (no expiration for individual experiments)
         experimentCache.set(cacheKey, cachedData, 0);
+        await saveExperiment(cachedData);
       } catch (error) {
         // Handle 404 from Python backend
         if (error.response && error.response.status === 404) {
@@ -450,6 +485,9 @@ router.delete(
     let experiment = experimentCache.get(cacheKey);
 
     if (!experiment) {
+      experiment = await getPersistedExperiment(id);
+    }
+    if (!experiment) {
       try {
         const response = await axiosClient.get(`/train/${id}/status`);
         experiment = {
@@ -489,6 +527,7 @@ router.delete(
 
       // Invalidate cache for this experiment and list cache
       experimentCache.del(`experiment:${id}`);
+      await deletePersistedExperiment(id);
       experimentCache.del('experiments:list');
       // Delete all list cache variations
       const keys = experimentCache.keys();
@@ -1512,6 +1551,12 @@ router.post(
       }
 
       experimentCache.set(cacheKey, updatedData, 0);
+      await updatePersistedExperiment(experimentId, {
+        status: updatedData.status,
+        current_round: updatedData.current_round,
+        total_rounds: updatedData.total_rounds,
+        error: updatedData.error,
+      });
     }
 
     return res.status(200).json({

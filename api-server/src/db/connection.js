@@ -29,6 +29,21 @@ const schemaStatements = [
     success BOOLEAN NOT NULL DEFAULT TRUE,
     error_message TEXT
   )`,
+  `CREATE TABLE IF NOT EXISTS experiments (
+    experiment_id VARCHAR(120) PRIMARY KEY,
+    user_id VARCHAR(120) NOT NULL,
+    username VARCHAR(120),
+    config JSONB NOT NULL DEFAULT '{}'::jsonb,
+    status VARCHAR(40) NOT NULL DEFAULT 'queued',
+    current_round INTEGER NOT NULL DEFAULT 0,
+    total_rounds INTEGER NOT NULL DEFAULT 0,
+    start_time TIMESTAMPTZ,
+    end_time TIMESTAMPTZ,
+    error TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`,
+  'CREATE INDEX IF NOT EXISTS experiments_user_created_idx ON experiments (user_id, created_at DESC)',
   'CREATE INDEX IF NOT EXISTS audit_logs_timestamp_idx ON audit_logs (timestamp DESC)',
   'CREATE INDEX IF NOT EXISTS audit_logs_user_idx ON audit_logs (user_id)',
   'CREATE INDEX IF NOT EXISTS audit_logs_resource_idx ON audit_logs (resource_type, resource_id)',
