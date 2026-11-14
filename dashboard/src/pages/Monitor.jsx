@@ -17,7 +17,7 @@ import {
 } from '@mui/material';
 import MonitorHeartIcon from '@mui/icons-material/MonitorHeart';
 import { fetchExperiments, selectAllExperiments } from '../store/slices/experimentsSlice';
-import { fetchAllMetrics, selectCommunicationMetrics, selectTrainingMetrics } from '../store/slices/metricsSlice';
+import { fetchAllMetrics, selectCommunicationMetrics, selectTrainingMetrics, selectPrivacyMetrics } from '../store/slices/metricsSlice';
 import { PageHeader, Panel, StatTile, StatusChip, RunProgress } from '../components/ui';
 import { isStale, progressOf, roundsOf } from '../utils/status';
 
@@ -31,6 +31,7 @@ const Monitor = () => {
   const selected = experiments.find((item) => item.id === selectedId) || experiments[0];
   const training = useSelector(selectTrainingMetrics(selected?.id));
   const communication = useSelector(selectCommunicationMetrics(selected?.id));
+  const privacy = useSelector(selectPrivacyMetrics(selected?.id));
 
   useEffect(() => {
     dispatch(fetchExperiments());
@@ -52,6 +53,9 @@ const Monitor = () => {
     : latestCommunication?.rejected_updates;
   const accepted = latestCommunication?.accepted_updates ?? participants;
   const activity = useMemo(() => training.slice(-8).reverse(), [training]);
+  const latestTraining = training[training.length - 1];
+  const clientMetrics = latestTraining?.client_metrics || [];
+  const latestPrivacy = privacy[privacy.length - 1];
 
   return (
     <Box>
@@ -106,6 +110,27 @@ const Monitor = () => {
             <StatTile label="Upload payload" value={valueOrDash(payload, (item) => `${(item / 1024).toFixed(1)} KiB`)} hint="serialized bytes when reported" accent="info" />
           </Box>
 
+          <Panel title="Client upload ledger" subtitle="Local training results and serialized updates from the latest round.">
+            {clientMetrics.length === 0 ? (
+              <Typography color="text.secondary">No client upload telemetry has arrived yet.</Typography>
+            ) : (
+              <Stack spacing={1}>
+                {clientMetrics.map((client) => (
+                  <Box key={client.client_id} sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2, p: 1.25, borderRadius: 2, bgcolor: 'action.hover' }}>
+                    <Box>
+                      <Typography variant="body2" fontWeight={700}>{client.client_id}</Typography>
+                      <Typography variant="caption" color="text.secondary">{client.num_samples} local windows · {client.status}</Typography>
+                    </Box>
+                    <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                      <Chip size="small" label={`loss ${valueOrDash(client.loss, (item) => Number(item).toFixed(4))}`} />
+                      <Chip size="small" label={`${valueOrDash(client.upload_bytes, (item) => `${(item / 1024).toFixed(1)} KiB`)} uploaded`} />
+                    </Stack>
+                  </Box>
+                ))}
+              </Stack>
+            )}
+          </Panel>
+
           <Box sx={{ display: 'grid', gap: 3, gridTemplateColumns: { xs: '1fr', lg: '1.2fr 0.8fr' } }}>
             <Panel title="Recent round activity" subtitle="Only rounds returned by the backend are shown.">
               {activity.length === 0 ? (
@@ -141,7 +166,11 @@ const Monitor = () => {
                 </Box>
                 <Box>
                   <Typography variant="overline" color="text.secondary">Federation mode</Typography>
-                  <Typography>Process-local simulator</Typography>
+                  <Typography>{selected?.config?.client_data_mode === 'disjoint' ? 'Process-local, disjoint client shards' : 'Process-local, redundant synthetic client shards'}</Typography>
+                </Box>
+                <Box>
+                  <Typography variant="overline" color="text.secondary">Live MIA</Typography>
+                  <Typography>{latestPrivacy?.mia_success_rate == null ? 'Awaiting attack telemetry' : `${(latestPrivacy.mia_success_rate * 100).toFixed(1)}% threshold-attack accuracy`}</Typography>
                 </Box>
                 <Box>
                   <Typography variant="overline" color="text.secondary">Resource telemetry</Typography>

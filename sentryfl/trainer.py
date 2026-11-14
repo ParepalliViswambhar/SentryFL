@@ -33,7 +33,6 @@ from sentryfl.federated.adms import ADMSModule
 from sentryfl.privacy.differential_privacy import DifferentialPrivacyModule
 from sentryfl.privacy.privacy_ledger import PrivacyLedger
 from sentryfl.evaluation.evaluation_pipeline import EvaluationPipeline
-from sentryfl.utils.comm_meter import measure_update_bytes
 from sentryfl.utils.config import ConfigurationSystem
 from sentryfl.utils.checkpoint_manager import CheckpointManager
 from sentryfl.utils.experiment_logger import ExperimentLogger
@@ -350,16 +349,48 @@ class MainTrainer:
         )
         
         client_shards = partitioner.partition(train_windows, train_window_labels)
+        client_data_mode = self.federated_config.get(
+            'client_data_mode',
+            'redundant' if self.data_config.get('data_source') == 'synthetic' else 'disjoint',
+        )
+        if self.data_config.get('data_source') != 'synthetic':
+            client_data_mode = 'disjoint'
+        if client_data_mode == 'redundant':
+            client_shards = self._make_redundant_client_shards(
+                train_windows,
+                train_window_labels,
+                len(client_shards),
+                float(self.federated_config.get('client_overlap_ratio', 0.5)),
+            )
+            logger.info(
+                "Synthetic client simulation uses overlapping local shards "
+                "(overlap_ratio=%.2f); raw rows remain client-local",
+                float(self.federated_config.get('client_overlap_ratio', 0.5)),
+            )
         
-        # Validate partition disjointness
-        is_disjoint = partitioner.validate_partition_disjointness(client_shards)
-        if is_disjoint:
-            logger.info("✓ Data partition validation passed: all shards are disjoint")
-        else:
-            logger.warning("⚠ Data partition may have overlapping samples")
+        # Validate disjointness only for the real/disjoint path. Overlap is
+        # intentional for synthetic client simulation and is recorded above.
+        if client_data_mode == 'disjoint':
+            is_disjoint = partitioner.validate_partition_disjointness(client_shards)
+            if is_disjoint:
+                logger.info("✓ Data partition validation passed: all shards are disjoint")
+            else:
+                logger.warning("⚠ Data partition may have overlapping samples")
         
         # Store client data shards
         self.client_data_shards = client_shards
+        self.client_data_provenance = {
+            'mode': client_data_mode,
+            'overlap_ratio': (
+                float(self.federated_config.get('client_overlap_ratio', 0.5))
+                if client_data_mode == 'redundant' else 0.0
+            ),
+            'client_window_counts': {
+                f'client_{client_id}': int(len(shard[0]))
+                for client_id, shard in enumerate(client_shards)
+            },
+            'unique_training_windows': int(len(train_windows)),
+        }
         
         # Process test data for evaluation
         logger.info("Processing test data...")
@@ -429,6 +460,25 @@ class MainTrainer:
         preprocessor.save_scaler(str(preprocessor_path))
         
         logger.info(f"Preprocessor saved to {preprocessor_path}")
+
+    @staticmethod
+    def _make_redundant_client_shards(
+        windows: np.ndarray,
+        labels: np.ndarray,
+        num_clients: int,
+        overlap_ratio: float,
+    ) -> List[Tuple[np.ndarray, np.ndarray]]:
+        """Create deterministic overlapping shards for synthetic client demos."""
+        if num_clients <= 0 or len(windows) == 0:
+            return [(windows[:0], labels[:0]) for _ in range(num_clients)]
+        overlap_ratio = min(max(overlap_ratio, 0.0), 0.99)
+        shard_size = max(1, int(np.ceil(len(windows) / num_clients)))
+        step = max(1, int(round(shard_size * (1.0 - overlap_ratio))))
+        shards = []
+        for client_id in range(num_clients):
+            indices = (np.arange(shard_size) + client_id * step) % len(windows)
+            shards.append((windows[indices], labels[indices]))
+        return shards
     
     def _initialize_clients(self):
         """Initialize federated clients with local data shards."""
@@ -680,6 +730,7 @@ class MainTrainer:
             
             # 3. Client local training
             round_metrics = []
+            client_round_metrics = []
             round_upload_bytes = 0  # measured serialized upload bytes this round
             for client in selected_clients:
                 logger.info(f"\n--- {client.client_id} local training ---")
@@ -701,22 +752,35 @@ class MainTrainer:
                         adms_module=adms_module
                     )
 
+                    # Serialize the local update as the client upload payload.
+                    upload_payload = client.serialize_update(local_params)
                     # Measure the ACTUAL serialized bytes this client uploads (v2
                     # honest communication accounting). For FFA-LoRA this is just the
                     # small adapter matrices; for full-head/ADMS it is the dense set.
-                    client_bytes = measure_update_bytes(local_params)
+                    client_bytes = len(upload_payload)
                     round_upload_bytes += client_bytes
                     metrics['upload_bytes'] = client_bytes
+                    metrics['client_id'] = client.client_id
+                    metrics['num_samples'] = client.data_size
 
                     # Collect update from client
-                    self.aggregation_server.collect_client_updates(
+                    accepted = self.aggregation_server.collect_serialized_update(
                         client_id=client.client_id,
-                        parameters=local_params,
+                        payload=upload_payload,
                         num_samples=client.data_size,
                         metrics=metrics
                     )
 
-                    round_metrics.append(metrics)
+                    if accepted:
+                        round_metrics.append(metrics)
+                    client_round_metrics.append({
+                        'client_id': client.client_id,
+                        'status': 'accepted' if accepted else 'rejected',
+                        'num_samples': client.data_size,
+                        'loss': metrics.get('final_loss'),
+                        'upload_bytes': client_bytes,
+                        'epsilon_spent': metrics.get('epsilon_spent'),
+                    })
                     logger.info(
                         f"{client.client_id} training complete: "
                         f"loss={metrics['final_loss']:.4f}, upload={client_bytes/1024:.1f} KiB"
@@ -724,6 +788,12 @@ class MainTrainer:
                     
                 except Exception as e:
                     logger.error(f"{client.client_id} training failed: {e}")
+                    client_round_metrics.append({
+                        'client_id': client.client_id,
+                        'status': 'failed',
+                        'num_samples': client.data_size,
+                        'error': str(e),
+                    })
                     continue
             
             # 4. Aggregate client updates
@@ -753,6 +823,7 @@ class MainTrainer:
                 'round_upload_bytes': round_upload_bytes,
                 'avg_client_upload_bytes': round_upload_bytes / n_participants,
                 'peft_method': self.peft_method,
+                'client_metrics': client_round_metrics,
             }
             logger.info(
                 f"Round {round_num} communication: {round_upload_bytes/1024:.1f} KiB "
@@ -765,6 +836,22 @@ class MainTrainer:
                 loss=avg_loss,
                 **agg_stats,
                 **comm_stats
+            )
+
+            mia_metrics = self._measure_live_mia(round_num)
+            self.experiment_logger.log_privacy_metrics(
+                round_num=round_num,
+                epsilon=(
+                    max(
+                        [metric['epsilon_spent'] for metric in round_metrics
+                         if metric.get('epsilon_spent') is not None],
+                        default=None,
+                    )
+                ),
+                delta=self.privacy_config.get('delta'),
+                mia_success_rate=mia_metrics['mia_success_rate'],
+                mia_auc=mia_metrics['mia_auc'],
+                mia_protocol=mia_metrics['protocol'],
             )
 
             # Keep communication as its own evidence category.  The payload
@@ -979,7 +1066,59 @@ class MainTrainer:
                    f"AUC-ROC={metrics.auc_roc:.4f}, AUC-PR={metrics.auc_pr:.4f}")
         
         return metrics
-    
+
+    def _measure_live_mia(self, round_num: int) -> Dict[str, Any]:
+        """Measure an empirical threshold membership attack after each round."""
+        max_samples = 256
+        member_data = self.calibration_data[:max_samples]
+        non_member_data = self.test_data[:max_samples]
+        if len(member_data) == 0 or len(non_member_data) == 0:
+            return {
+                'mia_success_rate': None,
+                'mia_auc': None,
+                'protocol': 'threshold_attack_insufficient_data',
+            }
+
+        evaluator = EvaluationPipeline(
+            model=self.aggregation_server.get_global_model(),
+            device=self.device,
+        )
+        member_scores = evaluator.compute_anomaly_scores(
+            member_data, batch_size=self.training_config['batch_size']
+        )
+        non_member_scores = evaluator.compute_anomaly_scores(
+            non_member_data, batch_size=self.training_config['batch_size']
+        )
+        scores = np.concatenate([member_scores, non_member_scores])
+        labels = np.concatenate([
+            np.ones(len(member_scores), dtype=int),
+            np.zeros(len(non_member_scores), dtype=int),
+        ])
+        candidates = np.unique(np.quantile(scores, np.linspace(0.05, 0.95, 19)))
+        best_accuracy = 0.5
+        for threshold in candidates:
+            for higher_means_member in (True, False):
+                predictions = (
+                    scores >= threshold
+                    if higher_means_member
+                    else scores < threshold
+                ).astype(int)
+                best_accuracy = max(best_accuracy, float(np.mean(predictions == labels)))
+        try:
+            from sklearn.metrics import roc_auc_score
+            auc = float(roc_auc_score(labels, scores))
+            auc = max(auc, 1.0 - auc)
+        except ValueError:
+            auc = 0.5
+        return {
+            'mia_success_rate': best_accuracy,
+            'mia_auc': auc,
+            'protocol': 'bounded_threshold_attack',
+            'member_windows': int(len(member_scores)),
+            'non_member_windows': int(len(non_member_scores)),
+            'round': round_num,
+        }
+
     def _check_early_stopping(self, current_metric: float, patience: int = 5) -> bool:
         """
         Check early stopping based on validation metric.
@@ -1218,10 +1357,14 @@ class MainTrainer:
                 'seed': self.repro_manager.seed,
                 'device': self.device,
                 'federation_mode': 'in_process_simulation',
+                'workflow_mode': self.experiment_config.get('workflow_mode', 'sentryfl'),
+                'client_data_mode': self.client_data_provenance['mode'],
+                'client_overlap_ratio': self.client_data_provenance['overlap_ratio'],
             },
             'provenance': {
                 'manifest_path': self.manifest_path,
                 'dataset': self.dataset_provenance,
+                'client_data': self.client_data_provenance,
                 'split_checksum': getattr(self, 'split_checksum', None),
                 'model_revision': self.config.get_section('model'),
             },
@@ -1254,8 +1397,8 @@ class MainTrainer:
                 },
                 {
                     'component': 'membership_inference_attack',
-                    'status': 'experimentally_unverified',
-                    'source': 'leakage_free_protocol_available_but_not_run_by_trainer',
+                    'status': 'measured',
+                    'source': 'bounded_threshold_attack_per_round',
                 },
                 {
                     'component': 'pretrained_backbone_result',
@@ -1303,13 +1446,10 @@ class MainTrainer:
                 'A failed or unrun research study must not be inferred from this report.',
             ],
             'mia': {
-                'status': 'experimentally_unverified',
-                'protocol': 'leakage_free_shadow_attack',
-                'results': None,
-                'limitation': (
-                    'MIA must be run as a separate fixed-seed evaluation using '
-                    'disjoint attack-train and attack-test partitions.'
-                ),
+                'status': 'measured',
+                'protocol': 'bounded_threshold_attack',
+                'results': self.experiment_logger.get_metrics('privacy'),
+                'limitation': 'This live signal is an empirical threshold attack, not a formal privacy guarantee.',
             },
             'distillation': self.distillation_report,
             'metrics': metrics,

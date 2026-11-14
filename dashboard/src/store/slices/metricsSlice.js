@@ -161,6 +161,7 @@ const normalizeMetric = (metric = {}, envelope = {}) => {
     ?? metric.num_clients
     ?? metric.num_participating_clients
     ?? metric.participating_clients;
+  const clientMetrics = metric.client_metrics ?? metric.clientMetrics;
 
   return {
     ...metric,
@@ -174,6 +175,7 @@ const normalizeMetric = (metric = {}, envelope = {}) => {
     bytesReceived: downloadBytes,
     numClients: clients,
     participating_clients: clients,
+    client_metrics: clientMetrics,
   };
 };
 

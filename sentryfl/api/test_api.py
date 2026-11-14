@@ -195,3 +195,18 @@ def test_metric_callback_is_invoked(monkeypatch):
 
     assert len(sent) == 3
     assert sent[0]["experiment_id"] == "experiment-1"
+def test_experiment_config_maps_workflow_and_client_upload_settings():
+    config = ExperimentConfig(
+        dataset="SMD",
+        clients_per_round=2,
+        local_epochs=3,
+        model_params={"window_size": 20, "seed": 7},
+        workflow_mode="standard_fedavg",
+    )
+    training = config.to_training_config()
+    assert training["training"]["local_epochs"] == 3
+    assert training["federated"]["clients_per_round"] == 2
+    assert training["data"]["data_source"] == "synthetic"
+    assert training["federated"]["client_data_mode"] == "redundant"
+    assert training["privacy"]["enabled"] is False
+    assert training["parameter_efficiency"]["adms_enabled"] is False

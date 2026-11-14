@@ -13,7 +13,7 @@
 import { useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import { useDispatch, useSelector } from 'react-redux';
-import { Alert, Box, Button, CircularProgress, Stack } from '@mui/material';
+import { Alert, Box, Button, CircularProgress, Stack, Typography, Chip } from '@mui/material';
 import ScienceIcon from '@mui/icons-material/Science';
 import DownloadIcon from '@mui/icons-material/Download';
 import DescriptionIcon from '@mui/icons-material/Description';
@@ -45,10 +45,12 @@ const ExperimentDetail = () => {
   const privacyMetrics = useSelector(selectPrivacyMetrics(id));
   const status = useSelector(selectExperimentsStatus);
   const [downloadError, setDownloadError] = useState('');
+  const [runReport, setRunReport] = useState(null);
 
   useEffect(() => {
     dispatch(fetchExperimentById(id));
     dispatch(fetchAllMetrics(id));
+    apiClient.get(`/experiments/${id}/report/data`).then(({ data }) => setRunReport(data)).catch(() => setRunReport(null));
   }, [dispatch, id]);
 
   if (status === 'loading' && !experiment) {
@@ -126,6 +128,17 @@ const ExperimentDetail = () => {
       </Panel>
 
       <Stack spacing={3}>
+        <Panel title="Workflow evidence" subtitle="Measured mode, client topology, and final performance for this run.">
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ flexWrap: 'wrap' }}>
+            <Chip label={experiment.config?.workflow_mode === 'standard_fedavg' ? 'Standard FedAvg baseline' : 'SentryFL workflow'} color={experiment.config?.workflow_mode === 'standard_fedavg' ? 'warning' : 'primary'} />
+            <Chip label={experiment.config?.client_data_mode === 'disjoint' ? 'Disjoint client shards' : 'Redundant synthetic client shards'} />
+            {runReport?.evaluation?.f1_score != null && <Chip label={`Final F1 ${Number(runReport.evaluation.f1_score).toFixed(3)}`} />}
+            {runReport?.evaluation?.auc_roc != null && <Chip label={`Final AUC ${Number(runReport.evaluation.auc_roc).toFixed(3)}`} />}
+          </Stack>
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
+            Run a SentryFL workflow and a Standard FedAvg baseline with the same dataset caps and seed, then select both in Comparison for a direct performance and privacy comparison.
+          </Typography>
+        </Panel>
         {/* Training Metrics — status drives the chart's own "Live" badge from the run state. */}
         <TrainingMetricsChart
           metrics={trainingMetrics}

@@ -80,6 +80,8 @@ class ConfigurationSystem:
             'num_clients': 10,
             'clients_per_round': 5,
             'partition_strategy': 'iid',  # 'iid' or 'non_iid'
+            'client_data_mode': 'redundant',  # overlapping synthetic client shards
+            'client_overlap_ratio': 0.5,
             'aggregation': 'fedavg',  # 'fedavg' or 'trimmed_mean'
             'byzantine_robust': False,
             'trimmed_mean_fraction': 0.1,
@@ -139,6 +141,7 @@ class ConfigurationSystem:
         'training.learning_rate': {'type': float, 'min': 0.0, 'exclusive_min': True},
         'federated.num_clients': {'type': int, 'min': 1},
         'federated.clients_per_round': {'type': int, 'min': 1},
+        'federated.client_overlap_ratio': {'type': float, 'min': 0.0, 'max': 0.99},
         'data.window_size': {'type': int, 'min': 1},
         'data.stride': {'type': int, 'min': 1},
         'data.train_ratio': {'type': float, 'min': 0.0, 'max': 1.0},

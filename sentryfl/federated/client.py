@@ -15,6 +15,7 @@ Key Features:
 Requirements: 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 2.7, 2.9, 2.10, 18.5
 """
 
+import io
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, TensorDataset
@@ -217,6 +218,19 @@ class FederatedClient:
                 f"Client {self.client_id}: Failed to load global model: {e}"
             )
             raise RuntimeError(f"Global model loading failed: {e}")
+
+    @staticmethod
+    def serialize_update(parameters: Dict[str, torch.Tensor]) -> bytes:
+        """Serialize the local trainable update as the client upload payload."""
+        buffer = io.BytesIO()
+        torch.save(
+            {
+                name: tensor.detach().cpu()
+                for name, tensor in parameters.items()
+            },
+            buffer,
+        )
+        return buffer.getvalue()
     
     def load_local_data(self) -> DataLoader:
         """

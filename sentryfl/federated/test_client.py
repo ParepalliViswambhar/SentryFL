@@ -539,3 +539,15 @@ class TestIntegration:
 
 if __name__ == '__main__':
     pytest.main([__file__, '-v'])
+
+
+def test_client_serializes_upload_payload(simple_model, local_data):
+    client = FederatedClient(
+        client_id='upload_client',
+        model=simple_model,
+        local_data=local_data,
+        device='cpu',
+    )
+    payload = client.serialize_update({'fc1.weight': simple_model.fc1.weight})
+    assert isinstance(payload, bytes)
+    assert len(payload) > 0

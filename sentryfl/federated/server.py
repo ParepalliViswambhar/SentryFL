@@ -16,6 +16,7 @@ Key Features:
 Requirements: 7.1, 7.2, 7.3, 7.6, 7.7, 7.8, 7.9, 7.10, 7.11
 """
 
+import io
 import torch
 import torch.nn as nn
 from typing import Dict, List, Tuple, Optional, Any
@@ -231,6 +232,29 @@ class AggregationServer:
         )
         self.rejected_updates.pop(client_id, None)
         return True
+
+    def collect_serialized_update(
+        self,
+        client_id: str,
+        payload: bytes,
+        num_samples: int,
+        metrics: Optional[Dict[str, Any]] = None,
+    ) -> bool:
+        """Receive and validate a client upload payload before aggregation."""
+        if not isinstance(payload, (bytes, bytearray)) or not payload:
+            self.rejected_updates[client_id] = "upload payload must be non-empty bytes"
+            return False
+        try:
+            parameters = torch.load(io.BytesIO(payload), map_location='cpu')
+        except (OSError, RuntimeError, EOFError, ValueError) as exc:
+            self.rejected_updates[client_id] = f"invalid upload payload: {exc}"
+            return False
+        return self.collect_client_updates(
+            client_id=client_id,
+            parameters=parameters,
+            num_samples=num_samples,
+            metrics=metrics,
+        )
     
     def _validate_parameters(
         self,

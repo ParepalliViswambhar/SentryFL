@@ -98,6 +98,12 @@ const experimentConfigSchema = Joi.object({
     .default('synthetic')
     .description('Use synthetic demo data or real downloaded dataset files'),
 
+  max_train_rows: Joi.number().integer().min(100).default(5000),
+  max_test_rows: Joi.number().integer().min(100).default(2000),
+  client_data_mode: Joi.string().valid('redundant', 'disjoint').default('redundant'),
+  client_overlap_ratio: Joi.number().min(0).max(0.99).default(0.5),
+  workflow_mode: Joi.string().valid('sentryfl', 'standard_fedavg').default('sentryfl'),
+
   // Model-specific parameters (optional)
   model_params: Joi.object()
     .default({})
