@@ -58,7 +58,7 @@ import useLiveExperiments from '../hooks/useLiveExperiments';
 
 const drawerWidth = 264;
 
-const NAV_ITEMS = [
+const ADMIN_NAV_ITEMS = [
   { text: 'Overview', icon: <DashboardIcon />, path: '/' },
   { text: 'New Experiment', icon: <AddIcon />, path: '/experiments/new' },
   { text: 'Experiments', icon: <ExperimentIcon />, path: '/experiments' },
@@ -68,6 +68,13 @@ const NAV_ITEMS = [
   { text: 'Aggregation lab', icon: <AccountTreeIcon />, path: '/aggregation' },
   { text: 'Artifacts', icon: <Inventory2Icon />, path: '/artifacts' },
   { text: 'Settings', icon: <SettingsIcon />, path: '/settings' },
+];
+
+const CLIENT_NAV_ITEMS = [
+  { text: 'Overview', icon: <DashboardIcon />, path: '/' },
+  { text: 'Client workspace', icon: <AccountTreeIcon />, path: '/client' },
+  { text: 'Experiments', icon: <ExperimentIcon />, path: '/experiments' },
+  { text: 'Artifacts', icon: <Inventory2Icon />, path: '/artifacts' },
 ];
 
 // Ordered longest/most-specific first so /experiments/new wins over :id.
@@ -82,6 +89,7 @@ const PAGE_TITLES = [
   [/^\/aggregation/, 'Aggregation visualizer'],
   [/^\/artifacts/, 'Artifacts & onboarding'],
   [/^\/settings/, 'Settings'],
+  [/^\/client/, 'Client workspace'],
 ];
 const titleFor = (pathname) => (PAGE_TITLES.find(([re]) => re.test(pathname)) || [null, 'SentryFL'])[1];
 
@@ -128,6 +136,7 @@ const Layout = () => {
 
   const pageTitle = useMemo(() => titleFor(location.pathname), [location.pathname]);
   const runningCount = activeExperiments.filter((exp) => exp.status === 'running').length;
+  const navItems = !currentUser || currentUser.role === 'admin' ? ADMIN_NAV_ITEMS : CLIENT_NAV_ITEMS;
 
   const drawerContent = (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -154,7 +163,7 @@ const Layout = () => {
             SentryFL
           </Typography>
           <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
-            Federated Learning
+            {!currentUser ? 'Federated Learning' : currentUser.role === 'admin' ? 'Admin control plane' : 'Client workspace'}
           </Typography>
         </Box>
       </Toolbar>
@@ -162,7 +171,7 @@ const Layout = () => {
 
       {/* Primary navigation */}
       <List sx={{ px: 1, py: 1.5 }}>
-        {NAV_ITEMS.map((item) => (
+        {navItems.map((item) => (
           <ListItem key={item.text} disablePadding sx={{ mb: 0.25 }}>
             <ListItemButton
               component={Link}
