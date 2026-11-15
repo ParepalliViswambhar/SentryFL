@@ -61,7 +61,7 @@ class PLMTimeSeriesBackbone(nn.Module):
     def __init__(
         self,
         input_dim: int,
-        model_name: str = 'bert-base-uncased',
+        model_name: str = 'gpt2',
         hidden_dim: Optional[int] = None,
         freeze_backbone: bool = True,
         max_seq_len: int = 512,
@@ -130,6 +130,10 @@ class PLMTimeSeriesBackbone(nn.Module):
         """
         embeddings = getattr(self.transformer, 'embeddings', None)
         if embeddings is not None and hasattr(embeddings, 'position_embeddings'):
+            return True
+        # GPT-2 stores learned positions under ``wpe`` rather than the BERT
+        # ``position_embeddings`` attribute.
+        if hasattr(self.transformer, 'wpe'):
             return True
         # Fallback heuristic on model name for architectures that embed positions.
         name = self.model_name.lower()
@@ -223,7 +227,7 @@ class PLMAnomalyDetector(nn.Module):
     def __init__(
         self,
         input_dim: int,
-        model_name: str = 'bert-base-uncased',
+        model_name: str = 'gpt2',
         hidden_dim: Optional[int] = None,
         freeze_backbone: bool = True,
         max_seq_len: int = 512,

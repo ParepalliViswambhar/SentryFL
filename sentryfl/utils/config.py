@@ -46,7 +46,7 @@ class ConfigurationSystem:
     # Default configuration values
     DEFAULT_CONFIG = {
         'model': {
-            'backbone': 'bert-base-uncased',
+            'backbone': 'gpt2',
             'hidden_dim': 768,
             'freeze_backbone': True,
             'dropout': 0.1,
@@ -106,8 +106,8 @@ class ConfigurationSystem:
             # Keep simulator runs bounded on downloaded datasets. The loader
             # still validates the source files, while training uses a
             # deterministic prefix of each split.
-            'max_train_rows': 5000,
-            'max_test_rows': 2000,
+            'max_train_rows': 2000,
+            'max_test_rows': 1000,
         },
         'optimization': {
             'quantization_enabled': False,
@@ -147,8 +147,8 @@ class ConfigurationSystem:
         'data.train_ratio': {'type': float, 'min': 0.0, 'max': 1.0},
         'data.val_ratio': {'type': float, 'min': 0.0, 'max': 1.0},
         'data.chunk_size': {'type': int, 'min': 1},
-        'data.max_train_rows': {'type': int, 'min': 100},
-        'data.max_test_rows': {'type': int, 'min': 100},
+        'data.max_train_rows': {'type': int, 'min': 1000},
+        'data.max_test_rows': {'type': int, 'min': 200},
         'experiment.checkpoint_interval': {'type': int, 'min': 1},
         'experiment.log_interval': {'type': int, 'min': 1},
         'experiment.seed': {'type': int, 'min': 0},

@@ -29,8 +29,8 @@ class ExperimentConfig(BaseModel):
     data_split: str = Field("iid", pattern="^(iid|non-iid|heterogeneous)$")
     model_params: Dict[str, Any] = Field(default_factory=dict)
     experiment_name: Optional[str] = None
-    max_train_rows: int = Field(5000, ge=100)
-    max_test_rows: int = Field(2000, ge=100)
+    max_train_rows: int = Field(2000, ge=1000)
+    max_test_rows: int = Field(1000, ge=200)
     client_data_mode: str = Field("redundant", pattern="^(redundant|disjoint)$")
     client_overlap_ratio: float = Field(0.5, ge=0, lt=1)
     workflow_mode: str = Field("sentryfl", pattern="^(sentryfl|standard_fedavg)$")

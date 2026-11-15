@@ -445,10 +445,13 @@ def build_trainer(config: ExperimentConfig, **hooks: Any) -> MainTrainer:
     resolved = ConfigurationSystem.from_dict(config.to_training_config())
     model_config = resolved.get_section("model")
     input_dim = 38 if config.dataset == "SMD" else 41
+    # SentryFL's research workflow uses GPT-2 as its only PLM backbone.
+    # Ignore stale caller-supplied backbone values so an old UI/config cannot
+    # silently launch a different research model.
     model = PLMAnomalyDetector(
         input_dim=input_dim,
         hidden_dim=model_config["hidden_dim"],
-        model_name=model_config["backbone"],
+        model_name="gpt2",
         freeze_backbone=model_config["freeze_backbone"],
         dropout=model_config.get("dropout", 0.1),
     )

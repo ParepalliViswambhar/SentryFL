@@ -34,7 +34,7 @@ All reference results were obtained using the following configuration:
 
 ### Training Configuration
 - **Random Seed**: 42
-- **Backbone**: bert-base-uncased (frozen)
+- **Backbone**: gpt2 (frozen)
 - **Optimizer**: Adam (lr=0.001, weight_decay=0.0001)
 - **Batch Size**: 32 (SMD), 64 (NSL-KDD)
 

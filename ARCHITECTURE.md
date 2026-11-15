@@ -160,8 +160,8 @@ Pre-trained transformer encoder:
 ```python
 from transformers import AutoModel
 
-self.plm = AutoModel.from_pretrained("bert-base-uncased")
-# Options: "bert-base-uncased", "bert-large-uncased", "gpt2", "gpt2-medium"
+self.plm = AutoModel.from_pretrained("gpt2")
+# SentryFL research workflow uses GPT-2 as the only production backbone.
 ```
 
 **Architecture Details**:
@@ -191,7 +191,7 @@ self.classifier = nn.Sequential(
 All parameters are trainable:
 ```yaml
 model:
-  backbone: "bert-base-uncased"
+  backbone: "gpt2"
   freeze_backbone: false
   hidden_dim: 768
 ```
@@ -201,7 +201,7 @@ model:
 Only classification head is trainable:
 ```yaml
 model:
-  backbone: "bert-base-uncased"
+  backbone: "gpt2"
   freeze_backbone: true
   hidden_dim: 768
 ```
@@ -211,7 +211,7 @@ model:
 Only 1-10% of parameters are trainable:
 ```yaml
 model:
-  backbone: "bert-base-uncased"
+  backbone: "gpt2"
   freeze_backbone: false
 parameter_efficiency:
   adms_enabled: true

@@ -347,7 +347,9 @@ def _build_train_evaluate_fns(config_path, data_path, device, num_rounds=None):
         model = PLMAnomalyDetector(
             input_dim=input_dim,
             hidden_dim=model_cfg.get('hidden_dim', 128),
-            model_name=model_cfg.get('backbone', 'bert-base-uncased'),
+            # The research workflow is GPT-2-only; do not allow stale
+            # ablation/config values to select another backbone.
+            model_name='gpt2',
             freeze_backbone=model_cfg.get('freeze_backbone', True),
             dropout=model_cfg.get('dropout', 0.1),
             peft_method=peft_method,

@@ -313,6 +313,11 @@ class MainTrainer:
         )
         train_start, train_end = temporal_ranges['train']
         val_start, val_end = temporal_ranges['val']
+        if (train_end - train_start) < preprocessor.window_size or (val_end - val_start) < preprocessor.window_size:
+            raise ValueError(
+                "The bounded NSL-KDD training sample is too small for the configured "
+                f"window_size={preprocessor.window_size}; increase max_train_rows"
+            )
         source_train = train_data[train_start:train_end]
         source_val = train_data[val_start:val_end]
         source_train_labels = train_labels[train_start:train_end]
@@ -376,6 +381,17 @@ class MainTrainer:
                 logger.info("✓ Data partition validation passed: all shards are disjoint")
             else:
                 logger.warning("⚠ Data partition may have overlapping samples")
+
+        if len(client_shards) > 1 and any(len(shard[0]) == 0 for shard in client_shards):
+            raise ValueError(
+                "Federated client partition produced an empty shard; "
+                "increase max_train_rows or reduce num_clients"
+            )
+        logger.info(
+            "Prepared %d client chunks: %s windows each",
+            len(client_shards),
+            [len(shard[0]) for shard in client_shards],
+        )
         
         # Store client data shards
         self.client_data_shards = client_shards
@@ -390,6 +406,7 @@ class MainTrainer:
                 for client_id, shard in enumerate(client_shards)
             },
             'unique_training_windows': int(len(train_windows)),
+            'partitioned_client_count': int(len(client_shards)),
         }
         
         # Process test data for evaluation

@@ -140,7 +140,7 @@ class TestConfigurationSystemDefaults(unittest.TestCase):
         system = ConfigurationSystem()
         
         # Check some default values from DEFAULT_CONFIG
-        self.assertEqual(system.get('model.backbone'), 'bert-base-uncased')
+        self.assertEqual(system.get('model.backbone'), 'gpt2')
         self.assertEqual(system.get('model.hidden_dim'), 768)
         self.assertEqual(system.get('training.num_rounds'), 100)
         self.assertEqual(system.get('training.batch_size'), 32)
@@ -165,7 +165,7 @@ class TestConfigurationSystemDefaults(unittest.TestCase):
         # Check that defaults are used for missing values
         self.assertEqual(system.get('training.num_rounds'), 100)  # Default
         self.assertEqual(system.get('training.learning_rate'), 0.001)  # Default
-        self.assertEqual(system.get('model.backbone'), 'bert-base-uncased')  # Default
+        self.assertEqual(system.get('model.backbone'), 'gpt2')  # Default
     
     def test_all_required_sections_have_defaults(self):
         """Test that all required sections exist in defaults"""
@@ -568,7 +568,7 @@ class TestConfigurationSystemUtilityMethods(unittest.TestCase):
         system = ConfigurationSystem()
         
         # Test various nesting levels
-        self.assertEqual(system.get('model.backbone'), 'bert-base-uncased')
+        self.assertEqual(system.get('model.backbone'), 'gpt2')
         self.assertEqual(system.get('training.batch_size'), 32)
         self.assertIsNotNone(system.get('privacy.epsilon'))
     
