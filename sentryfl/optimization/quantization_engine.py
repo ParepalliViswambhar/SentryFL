@@ -1,9 +1,10 @@
 """
 Quantization Engine Module: INT8 Post-Training Static Quantization
 
-This module implements post-training static quantization to reduce model size
-and inference latency for edge deployment. It converts FP32 models to INT8
-using calibration data to compute activation ranges.
+This module implements INT8 quantization-aware training and post-training static
+quantization to reduce model size and inference latency for edge deployment.
+QAT keeps fake-quantization active during local client training, while static
+conversion produces the final INT8 artifact.
 
 Requirements Addressed:
 - 9.1: Load trained floating-point model
@@ -132,6 +133,37 @@ class QuantizationEngine:
         
         logger.info(f"Model prepared for quantization with backend: {torch.backends.quantized.engine}")
         return model_copy
+
+    def prepare_model_for_qat(self) -> nn.Module:
+        """Prepare trainable layers for quantization-aware training.
+
+        Transformer backbones can contain operators without PyTorch quantized
+        kernels, so QAT is scoped to supported ``Linear`` layers. Fake
+        quantization remains active during client training and the converted
+        global artifact is still INT8.
+        """
+        model_copy = copy.deepcopy(self.fp32_model)
+        model_copy.to(self.device)
+        model_copy.train()
+
+        torch.backends.quantized.engine = 'fbgemm'
+        qconfig = quant.get_default_qat_qconfig('fbgemm')
+        quantized_layers = 0
+        for module in model_copy.modules():
+            module.qconfig = None
+            if isinstance(module, nn.Linear):
+                module.qconfig = qconfig
+                quantized_layers += 1
+
+        if quantized_layers == 0:
+            raise RuntimeError("INT8 QAT requires at least one supported Linear layer")
+
+        quant.prepare_qat(model_copy, inplace=True)
+        logger.info(
+            "Prepared %d Linear layers for INT8 quantization-aware training",
+            quantized_layers,
+        )
+        return model_copy
     
     def calibrate(self, calibration_loader: DataLoader, num_batches: Optional[int] = None):
         """
@@ -253,6 +285,19 @@ class QuantizationEngine:
         # Log layer-wise quantization parameters
         self._log_quantization_parameters()
         
+        return self.quantized_model
+
+    def convert_qat_to_int8(self) -> nn.Module:
+        """Convert a model trained with fake quantization observers to INT8."""
+        if self.quantized_model is None:
+            raise RuntimeError("Model must be prepared for QAT before conversion")
+
+        qat_model = self.quantized_model
+        qat_model.eval()
+        fallback_model = copy.deepcopy(qat_model).to(self.device).eval()
+        quant.convert(qat_model, inplace=True)
+        self.quantized_model = _PortableQuantizedModel(qat_model, fallback_model)
+        logger.info("Converted the QAT-trained global model to INT8")
         return self.quantized_model
     
     def _log_quantization_parameters(self):

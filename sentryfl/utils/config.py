@@ -77,8 +77,8 @@ class ConfigurationSystem:
             'save_plots': True,
         },
         'federated': {
-            'num_clients': 10,
-            'clients_per_round': 5,
+            'num_clients': 20,
+            'clients_per_round': 10,
             'partition_strategy': 'iid',  # 'iid' or 'non_iid'
             'client_data_mode': 'redundant',  # overlapping synthetic client shards
             'client_overlap_ratio': 0.5,
@@ -110,7 +110,7 @@ class ConfigurationSystem:
             'max_test_rows': 1000,
         },
         'optimization': {
-            'quantization_enabled': False,
+            'quantization_enabled': True,
             'quantization_dtype': 'int8',
             'knowledge_distillation_enabled': False,
             'distillation_temperature': 3.0,

@@ -145,7 +145,7 @@ class TestConfigurationSystemDefaults(unittest.TestCase):
         self.assertEqual(system.get('training.num_rounds'), 100)
         self.assertEqual(system.get('training.batch_size'), 32)
         self.assertEqual(system.get('privacy.epsilon'), 1.0)
-        self.assertEqual(system.get('federated.num_clients'), 10)
+        self.assertEqual(system.get('federated.num_clients'), 20)
         self.assertEqual(system.get('data.window_size'), 100)
     
     def test_defaults_merged_with_partial_config(self):

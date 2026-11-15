@@ -188,6 +188,7 @@ class MainTrainer:
         self.manifest_path: Optional[str] = None
         self.result_report_path: Optional[str] = None
         self.distillation_report: Optional[Dict[str, Any]] = None
+        self.quantization_aware_training = False
         
         logger.info(f"MainTrainer initialized with device={device}")
     
@@ -213,15 +214,22 @@ class MainTrainer:
         logger.info("Step 1/6: Loading and partitioning dataset...")
         self._load_and_partition_data()
         
-        # 2. Initialize federated clients
+        # 2. Prepare the shared model for QAT before cloning it to clients.
+        if self.optimization_config.get('quantization_enabled', False):
+            qat_engine = QuantizationEngine(self.model, device=self.device)
+            self.model = qat_engine.prepare_model_for_qat()
+            self.quantization_aware_training = True
+            logger.info("INT8 quantization-aware training enabled for client and server models")
+
+        # 3. Initialize federated clients
         logger.info("Step 2/6: Initializing federated clients...")
         self._initialize_clients()
         
-        # 3. Initialize aggregation server
+        # 4. Initialize aggregation server
         logger.info("Step 3/6: Initializing aggregation server...")
         self._initialize_server()
         
-        # 4. Setup privacy modules. Client-side Opacus DP-SGD is only used in the
+        # 5. Setup privacy modules. Client-side Opacus DP-SGD is only used in the
         # legacy record-level mechanism; DP-FedAvg adds noise server-side (already
         # configured in _initialize_server), so no per-client Opacus attach.
         if self.privacy_mechanism == 'record_dpsgd':
@@ -233,7 +241,7 @@ class MainTrainer:
         else:
             logger.info("Step 4/6: Differential privacy disabled, skipping...")
 
-        # 5. Setup ADMS modules (legacy parameter-efficiency baseline). LoRA/FFA-LoRA
+        # 6. Setup ADMS modules (legacy parameter-efficiency baseline). LoRA/FFA-LoRA
         # are baked into the model architecture at construction, not here.
         if self.peft_method == 'adms':
             logger.info("Step 5/6: Setting up ADMS parameter efficiency modules...")
@@ -241,7 +249,7 @@ class MainTrainer:
         else:
             logger.info(f"Step 5/6: peft_method={self.peft_method}; ADMS masking not used...")
         
-        # 6. Initialize experiment infrastructure
+        # 7. Initialize experiment infrastructure
         logger.info("Step 6/6: Initializing checkpoint manager and experiment logger...")
         self._initialize_experiment_infrastructure()
         
@@ -999,9 +1007,7 @@ class MainTrainer:
         # Final evaluation
         self._final_evaluation()
 
-        # INT8 is post-training static quantization in SentryFL.  It is applied
-        # after federated optimization so quantized kernels never interfere with
-        # autograd or DP accounting during local client training.
+        # Convert the QAT-trained global model after federated optimization.
         if self.config.get_section('optimization').get('quantization_enabled', False):
             self._quantize_final_model()
         
@@ -1011,22 +1017,26 @@ class MainTrainer:
     def _quantize_final_model(self):
         """Convert the trained global model to INT8 for edge inference."""
         logger.info("INT8 quantization enabled: quantizing the final global model")
-        calibration_size = self.optimization_config.get('quantization_calibration_batches', 10)
-        calibration_dataset = TensorDataset(
-            self.calibration_data,
-            torch.zeros(len(self.calibration_data), dtype=torch.float32),
-        )
-        calibration_loader = DataLoader(
-            calibration_dataset,
-            batch_size=self.training_config['batch_size'],
-            shuffle=False,
-        )
         engine = QuantizationEngine(
             self.aggregation_server.get_global_model(),
             device='cpu',
         )
-        engine.calibrate(calibration_loader, num_batches=calibration_size)
-        quantized_model = engine.convert_to_int8()
+        if self.quantization_aware_training:
+            engine.quantized_model = self.aggregation_server.get_global_model()
+            quantized_model = engine.convert_qat_to_int8()
+        else:
+            calibration_size = self.optimization_config.get('quantization_calibration_batches', 10)
+            calibration_dataset = TensorDataset(
+                self.calibration_data,
+                torch.zeros(len(self.calibration_data), dtype=torch.float32),
+            )
+            calibration_loader = DataLoader(
+                calibration_dataset,
+                batch_size=self.training_config['batch_size'],
+                shuffle=False,
+            )
+            engine.calibrate(calibration_loader, num_batches=calibration_size)
+            quantized_model = engine.convert_to_int8()
         quantized_path = Path(self.experiment_config['output_dir']) / 'global_model_int8.pt'
         torch.save(quantized_model.state_dict(), quantized_path)
         logger.info("INT8 global model saved to %s", quantized_path)
@@ -1377,6 +1387,15 @@ class MainTrainer:
                 'workflow_mode': self.experiment_config.get('workflow_mode', 'sentryfl'),
                 'client_data_mode': self.client_data_provenance['mode'],
                 'client_overlap_ratio': self.client_data_provenance['overlap_ratio'],
+                'client_count': self.client_data_provenance['partitioned_client_count'],
+                'quantization': {
+                    'enabled': bool(self.optimization_config.get('quantization_enabled', False)),
+                    'training_mode': (
+                        'quantization_aware_training'
+                        if self.quantization_aware_training else 'post_training_static'
+                    ),
+                    'dtype': self.optimization_config.get('quantization_dtype', 'int8'),
+                },
             },
             'provenance': {
                 'manifest_path': self.manifest_path,

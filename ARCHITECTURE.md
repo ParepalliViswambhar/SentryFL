@@ -164,6 +164,11 @@ self.plm = AutoModel.from_pretrained("gpt2")
 # SentryFL research workflow uses GPT-2 as the only production backbone.
 ```
 
+Federated simulations default to 20 clients (configurable for 20–30 clients).
+When INT8 quantization is enabled, supported trainable linear layers use
+quantization-aware training on every client before the global model is converted
+to an INT8 artifact.
+
 **Architecture Details**:
 - **BERT-base**: 12 layers, 768 hidden, 12 attention heads, 110M parameters
 - **BERT-large**: 24 layers, 1024 hidden, 16 attention heads, 340M parameters

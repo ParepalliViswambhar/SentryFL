@@ -9,7 +9,7 @@ class ExperimentConfig(BaseModel):
     """API configuration, accepting API fields and nested SentryFL overrides."""
 
     dataset: str = Field("SMD", pattern="^(SMD|NSL-KDD)$")
-    num_clients: int = Field(10, ge=1)
+    num_clients: int = Field(20, ge=1)
     clients_per_round: Optional[int] = Field(None, ge=1)
     num_rounds: int = Field(100, ge=1)
     epsilon: float = Field(1.0, gt=0)
@@ -19,7 +19,7 @@ class ExperimentConfig(BaseModel):
     learning_rate: float = Field(0.001, gt=0)
     selection_ratio: float = Field(0.05, ge=0, le=1)
     enable_byzantine_robust: bool = False
-    enable_quantization: bool = False
+    enable_quantization: bool = True
     enable_knowledge_distillation: bool = False
     callback_url: Optional[HttpUrl] = None
     data_path: str = "./data"
