@@ -201,6 +201,7 @@ def test_experiment_config_maps_workflow_and_client_upload_settings():
         clients_per_round=2,
         local_epochs=3,
         model_params={"window_size": 20, "seed": 7},
+        aggregation_flow="sequential_fedavg",
         workflow_mode="standard_fedavg",
     )
     training = config.to_training_config()
@@ -208,5 +209,6 @@ def test_experiment_config_maps_workflow_and_client_upload_settings():
     assert training["federated"]["clients_per_round"] == 2
     assert training["data"]["data_source"] == "synthetic"
     assert training["federated"]["client_data_mode"] == "redundant"
+    assert training["federated"]["aggregation_flow"] == "sequential_fedavg"
     assert training["privacy"]["enabled"] is False
     assert training["parameter_efficiency"]["adms_enabled"] is False

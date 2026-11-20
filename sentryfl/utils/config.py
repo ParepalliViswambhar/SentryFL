@@ -83,6 +83,7 @@ class ConfigurationSystem:
             'client_data_mode': 'redundant',  # overlapping synthetic client shards
             'client_overlap_ratio': 0.5,
             'aggregation': 'fedavg',  # 'fedavg' or 'trimmed_mean'
+            'aggregation_flow': 'standard_fedavg',
             'byzantine_robust': False,
             'trimmed_mean_fraction': 0.1,
         },

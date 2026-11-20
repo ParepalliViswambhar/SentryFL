@@ -36,6 +36,7 @@ All reference results were obtained using the following configuration:
 - **Random Seed**: 42
 - **Backbone**: gpt2 (frozen)
 - **Federated clients**: 20 by default; supported bounded range is 20–30
+- **Client update flow**: sequential upload, immediate weighted FedAvg, and next-client download
 - **Quantization**: INT8 quantization-aware training enabled by default
 - **Optimizer**: Adam (lr=0.001, weight_decay=0.0001)
 - **Batch Size**: 32 (SMD), 64 (NSL-KDD)

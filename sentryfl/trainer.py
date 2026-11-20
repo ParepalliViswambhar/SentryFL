@@ -732,6 +732,9 @@ class MainTrainer:
         num_rounds = self.training_config['num_rounds']
         local_epochs = self.training_config['local_epochs']
         clients_per_round = self.federated_config['clients_per_round']
+        aggregation_flow = self.federated_config.get('aggregation_flow', 'standard_fedavg')
+        if aggregation_flow not in {'standard_fedavg', 'sequential_fedavg'}:
+            raise ValueError(f"Unsupported aggregation_flow: {aggregation_flow}")
         
         # A resumed checkpoint represents the completed round stored in
         # ``current_round``. Continue from the next round rather than replaying
@@ -745,22 +748,35 @@ class MainTrainer:
             logger.info(f"ROUND {round_num}/{num_rounds}")
             logger.info(f"{'=' * 80}")
             
-            # 1. Broadcast global model to clients
-            logger.info(f"Broadcasting global model to {clients_per_round} clients...")
-            global_params = self.aggregation_server.broadcast_global_model()
-            
-            # 2. Select clients for this round
+            # 1. Select clients for this round
             selected_clients = self._select_clients(clients_per_round)
             logger.info(f"Selected clients: {[c.client_id for c in selected_clients]}")
             
-            # 3. Client local training
+            # 2. Client local training and upload
             round_metrics = []
             client_round_metrics = []
+            sequential_aggregation_steps = []
             round_upload_bytes = 0  # measured serialized upload bytes this round
-            for client in selected_clients:
+            for client_index, client in enumerate(selected_clients, start=1):
                 logger.info(f"\n--- {client.client_id} local training ---")
                 
-                # Load global model
+                # Standard FedAvg broadcasts once at the round boundary. In
+                # sequential mode each accepted upload is aggregated before
+                # the next client downloads the new global weights.
+                if aggregation_flow == 'standard_fedavg' and client_index == 1:
+                    logger.info(f"Broadcasting global model to {clients_per_round} clients...")
+                    global_params = self.aggregation_server.broadcast_global_model(
+                        [selected.client_id for selected in selected_clients]
+                    )
+                elif aggregation_flow == 'sequential_fedavg':
+                    logger.info(
+                        "Sequential flow: downloading latest global model for %s (%d/%d)",
+                        client.client_id, client_index, len(selected_clients),
+                    )
+                    global_params = self.aggregation_server.broadcast_global_model(
+                        [client.client_id]
+                    )
+
                 client.receive_global_model(global_params)
                 
                 # Get privacy and ADMS modules if applicable. In dp_fedavg mode
@@ -798,6 +814,24 @@ class MainTrainer:
 
                     if accepted:
                         round_metrics.append(metrics)
+                        if aggregation_flow == 'sequential_fedavg':
+                            step_stats = self.aggregation_server.aggregate_updates(
+                                round_num=round_num,
+                                min_clients=1,
+                            )
+                            if step_stats.get('status') == 'insufficient_clients':
+                                raise RuntimeError(
+                                    f"Sequential aggregation rejected {client.client_id}: "
+                                    f"{step_stats}"
+                                )
+                            sequential_aggregation_steps.append({
+                                'step': client_index,
+                                'client_id': client.client_id,
+                                'accepted_updates': step_stats.get('accepted_updates', 0),
+                                'aggregation_method': step_stats.get('aggregation_method'),
+                            })
+                            metrics['aggregation_step'] = client_index
+                            metrics['global_update_applied'] = True
                     client_round_metrics.append({
                         'client_id': client.client_id,
                         'status': 'accepted' if accepted else 'rejected',
@@ -805,6 +839,8 @@ class MainTrainer:
                         'loss': metrics.get('final_loss'),
                         'upload_bytes': client_bytes,
                         'epsilon_spent': metrics.get('epsilon_spent'),
+                        'aggregation_step': metrics.get('aggregation_step'),
+                        'global_update_applied': metrics.get('global_update_applied', False),
                     })
                     logger.info(
                         f"{client.client_id} training complete: "
@@ -821,22 +857,26 @@ class MainTrainer:
                     })
                     continue
             
-            # 4. Aggregate client updates
+            # 3. Aggregate client updates. Sequential mode has already applied
+            # one FedAvg update after each accepted upload.
             logger.info(f"\nAggregating updates from {len(round_metrics)} clients...")
             if not round_metrics:
                 raise RuntimeError(
                     f"Round {round_num} produced no valid client updates; "
                     "training cannot continue with fabricated metrics"
                 )
-            agg_stats = self.aggregation_server.aggregate_updates(
-                round_num=round_num,
-                min_clients=1
-            )
-            if agg_stats.get('status') == 'insufficient_clients':
-                raise RuntimeError(
-                    f"Round {round_num} could not aggregate the accepted client "
-                    f"updates: {agg_stats}"
+            if aggregation_flow == 'sequential_fedavg':
+                agg_stats = sequential_aggregation_steps[-1]
+            else:
+                agg_stats = self.aggregation_server.aggregate_updates(
+                    round_num=round_num,
+                    min_clients=1
                 )
+                if agg_stats.get('status') == 'insufficient_clients':
+                    raise RuntimeError(
+                        f"Round {round_num} could not aggregate the accepted client "
+                        f"updates: {agg_stats}"
+                    )
             
             # 5. Compute round metrics
             avg_loss = np.mean([m['final_loss'] for m in round_metrics])
@@ -849,6 +889,8 @@ class MainTrainer:
                 'avg_client_upload_bytes': round_upload_bytes / n_participants,
                 'peft_method': self.peft_method,
                 'client_metrics': client_round_metrics,
+                'aggregation_flow': aggregation_flow,
+                'sequential_aggregation_steps': sequential_aggregation_steps,
             }
             logger.info(
                 f"Round {round_num} communication: {round_upload_bytes/1024:.1f} KiB "

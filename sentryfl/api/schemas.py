@@ -33,6 +33,7 @@ class ExperimentConfig(BaseModel):
     max_test_rows: int = Field(1000, ge=200)
     client_data_mode: str = Field("redundant", pattern="^(redundant|disjoint)$")
     client_overlap_ratio: float = Field(0.5, ge=0, lt=1)
+    aggregation_flow: str = Field("sequential_fedavg", pattern="^(standard_fedavg|sequential_fedavg)$")
     workflow_mode: str = Field("sentryfl", pattern="^(sentryfl|standard_fedavg)$")
     device: Optional[str] = None
     config: Dict[str, Any] = Field(default_factory=dict)
@@ -83,6 +84,7 @@ class ExperimentConfig(BaseModel):
             ),
             "client_data_mode": self.client_data_mode,
             "client_overlap_ratio": self.client_overlap_ratio,
+            "aggregation_flow": self.aggregation_flow,
             "partition_strategy": "non_iid" if self.data_split == "non-iid" else "iid",
             "byzantine_robust": self.enable_byzantine_robust,
         })

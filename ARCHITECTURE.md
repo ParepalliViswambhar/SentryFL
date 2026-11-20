@@ -169,6 +169,12 @@ When INT8 quantization is enabled, supported trainable linear layers use
 quantization-aware training on every client before the global model is converted
 to an INT8 artifact.
 
+The API and dashboard default to sequential client updates: a client downloads
+the current global weights, trains on its private shard, uploads serialized
+weights, and the server applies weighted FedAvg immediately. The next selected
+client then downloads those newly aggregated weights. Round-based standard
+FedAvg remains available as an explicit flow.
+
 **Architecture Details**:
 - **BERT-base**: 12 layers, 768 hidden, 12 attention heads, 110M parameters
 - **BERT-large**: 24 layers, 1024 hidden, 16 attention heads, 340M parameters
