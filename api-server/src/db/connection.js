@@ -43,7 +43,23 @@ const schemaStatements = [
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
   )`,
+  `CREATE TABLE IF NOT EXISTS mia_report_requests (
+    request_id UUID PRIMARY KEY,
+    experiment_id VARCHAR(120) NOT NULL,
+    client_user_id VARCHAR(120) NOT NULL,
+    client_username VARCHAR(120) NOT NULL,
+    request_note TEXT,
+    status VARCHAR(30) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'sent', 'rejected')),
+    mia_report JSONB,
+    admin_user_id VARCHAR(120),
+    admin_username VARCHAR(120),
+    admin_note TEXT,
+    requested_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    sent_at TIMESTAMPTZ
+  )`,
   'CREATE INDEX IF NOT EXISTS experiments_user_created_idx ON experiments (user_id, created_at DESC)',
+  'CREATE INDEX IF NOT EXISTS mia_requests_client_idx ON mia_report_requests (client_user_id, requested_at DESC)',
+  'CREATE INDEX IF NOT EXISTS mia_requests_status_idx ON mia_report_requests (status, requested_at DESC)',
   'CREATE INDEX IF NOT EXISTS audit_logs_timestamp_idx ON audit_logs (timestamp DESC)',
   'CREATE INDEX IF NOT EXISTS audit_logs_user_idx ON audit_logs (user_id)',
   'CREATE INDEX IF NOT EXISTS audit_logs_resource_idx ON audit_logs (resource_type, resource_id)',

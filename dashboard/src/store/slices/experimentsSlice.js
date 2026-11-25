@@ -180,6 +180,27 @@ export const fetchExperiments = createAsyncThunk(
 );
 
 /**
+ * Async thunk to fetch federated experiments open to authenticated client nodes.
+ * Falls back to `/experiments` if `/experiments/federated` is unavailable.
+ */
+export const fetchFederatedExperiments = createAsyncThunk(
+  'experiments/fetchFederated',
+  async (_, { rejectWithValue }) => {
+    try {
+      const response = await apiClient.get('/experiments/federated');
+      return extractExperimentList(response.data);
+    } catch (error) {
+      try {
+        const fallback = await apiClient.get('/experiments');
+        return extractExperimentList(fallback.data);
+      } catch (err2) {
+        return rejectWithValue(error.response?.data || error.message);
+      }
+    }
+  }
+);
+
+/**
  * Async thunk to fetch single experiment by ID
  * 
  * @async
@@ -405,6 +426,20 @@ const experimentsSlice = createSlice({
         state.list = Array.isArray(action.payload) ? action.payload : [];
       })
       .addCase(fetchExperiments.rejected, (state, action) => {
+        state.status = 'failed';
+        state.error = action.payload;
+      })
+
+      // Fetch federated experiments for client participation
+      .addCase(fetchFederatedExperiments.pending, (state) => {
+        state.status = 'loading';
+        state.error = null;
+      })
+      .addCase(fetchFederatedExperiments.fulfilled, (state, action) => {
+        state.status = 'succeeded';
+        state.list = Array.isArray(action.payload) ? action.payload : [];
+      })
+      .addCase(fetchFederatedExperiments.rejected, (state, action) => {
         state.status = 'failed';
         state.error = action.payload;
       })

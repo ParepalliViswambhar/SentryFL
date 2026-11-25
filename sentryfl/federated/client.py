@@ -129,9 +129,13 @@ class FederatedClient:
         self.local_data = local_data
         self.data_size = len(X_train)
         
-        # Initialize optimizer
+        # Initialize optimizer only on trainable parameters to avoid allocating
+        # state tensors for massive frozen backbones (e.g. GPT-2 with 124M params).
+        trainable_params = [p for p in self.model.parameters() if p.requires_grad]
+        if not trainable_params:
+            trainable_params = list(self.model.parameters())
         self.optimizer = torch.optim.Adam(
-            self.model.parameters(),
+            trainable_params,
             lr=learning_rate
         )
         

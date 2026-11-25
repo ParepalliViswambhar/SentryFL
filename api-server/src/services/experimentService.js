@@ -82,6 +82,27 @@ const listExperiments = async ({ userId, isAdmin, status, limit, offset }) => {
   return result.rows.map(toExperiment);
 };
 
+const listFederatedExperiments = async ({ status, limit = 100, offset = 0 } = {}) => {
+  const values = [];
+  const filters = [];
+  if (status) {
+    values.push(status);
+    filters.push(`status = $${values.length}`);
+  }
+  values.push(limit);
+  const limitParam = values.length;
+  values.push(offset);
+  const offsetParam = values.length;
+  const where = filters.length ? `WHERE ${filters.join(' AND ')}` : '';
+  const result = await db.query(
+    `SELECT * FROM experiments ${where}
+     ORDER BY created_at DESC
+     LIMIT $${limitParam} OFFSET $${offsetParam}`,
+    values
+  );
+  return result.rows.map(toExperiment);
+};
+
 const getExperiment = async (experimentId) => {
   const result = await db.query('SELECT * FROM experiments WHERE experiment_id = $1', [experimentId]);
   return result.rows[0] ? toExperiment(result.rows[0]) : null;
@@ -112,6 +133,7 @@ const deleteExperiment = async (experimentId) => {
 module.exports = {
   saveExperiment,
   listExperiments,
+  listFederatedExperiments,
   getExperiment,
   updateExperiment,
   deleteExperiment,

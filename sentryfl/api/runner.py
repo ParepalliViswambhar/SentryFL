@@ -55,6 +55,7 @@ class ExperimentRunner:
         self.pause_event.set()
         self._task: Optional[asyncio.Task] = None
         self._lock = threading.Lock()
+        self._setup_lock = threading.Lock()
         # Liveness heartbeat: a daemon thread emits a periodic `heartbeat` event
         # while the run is active so the dashboard can prove work is happening
         # even before the first round lands. Overridable per-instance for tests.
@@ -76,25 +77,43 @@ class ExperimentRunner:
         # which can take a while) is visibly alive rather than looking dead.
         self._start_heartbeat()
         try:
-            trainer = self.trainer_factory(
-                self.config,
-                on_round_metrics=self._on_round_metrics,
-                stop_event=self.stop_event,
-            )
-            self.trainer = trainer
-            trainer.setup()
-            trainer.train()
-            if self.stop_event.is_set():
-                self._set_status("stopped", "Experiment stopped", previous="running")
+            is_remote = getattr(self.config, "federation_mode", "simulated") == "remote"
+            with self._setup_lock:
+                if self.trainer is None:
+                    self.trainer = self.trainer_factory(
+                        self.config,
+                        on_round_metrics=self._on_round_metrics,
+                        stop_event=self.stop_event,
+                    )
+                trainer = self.trainer
+                if is_remote:
+                    try:
+                        trainer.setup(initialize_clients=False)
+                    except TypeError:
+                        trainer.setup()
+                else:
+                    trainer.setup()
+
+            if is_remote:
+                self._set_status(
+                    "running",
+                    "Global model initialized — ready for remote clients",
+                    previous="running",
+                )
             else:
-                self._set_status("completed", "Training complete", previous="running")
+                trainer.train()
+                if self.stop_event.is_set():
+                    self._set_status("stopped", "Experiment stopped", previous="running")
+                else:
+                    self._set_status("completed", "Training complete", previous="running")
         except Exception as exc:
             self.error = str(exc)
             self._set_status("failed", str(exc), previous="running")
             self._emit("error", {"message": str(exc), "round": self.current_round})
         finally:
             self._stop_heartbeat()
-            self.end_time = time.time()
+            if getattr(self.config, "federation_mode", "simulated") != "remote":
+                self.end_time = time.time()
 
     def _on_round_metrics(self, round_number: int, metrics: Dict[str, Any]) -> None:
         # Block here while paused so training halts at a round boundary without
@@ -297,6 +316,9 @@ class ExperimentRunner:
         self.stop_event.set()
         # Ensure a paused worker wakes up to observe the stop request.
         self.pause_event.set()
+        if getattr(self.config, "federation_mode", "simulated") == "remote" and self.status in {"pending", "running", "paused"}:
+            self.status = "stopped"
+            self.end_time = time.time()
         if self._task and self.status in {"pending", "running", "paused"}:
             await asyncio.sleep(0)
 
@@ -304,6 +326,8 @@ class ExperimentRunner:
         """Request the experiment pause at the next round boundary."""
         if self.status in {"pending", "running"}:
             self.pause_event.clear()
+            if getattr(self.config, "federation_mode", "simulated") == "remote":
+                self.status = "paused"
         await asyncio.sleep(0)
 
     async def resume(self) -> None:
@@ -416,25 +440,386 @@ class ExperimentRunner:
             }),
         }
 
+    def _ensure_trainer(self) -> MainTrainer:
+        with self._setup_lock:
+            if self.trainer is None:
+                trainer = self.trainer_factory(
+                    self.config,
+                    on_round_metrics=self._on_round_metrics,
+                    stop_event=self.stop_event,
+                )
+                self.trainer = trainer
+                if not hasattr(trainer, "aggregation_server") or trainer.aggregation_server is None:
+                    trainer._initialize_server()
+            elif getattr(self.trainer, "aggregation_server", None) is None and hasattr(self.trainer, "_initialize_server"):
+                self.trainer._initialize_server()
+            return self.trainer
+
     def get_model_artifact(self) -> bytes:
         """Serialize the latest global model for a client download."""
-        if self.trainer is None:
-            raise RuntimeError("The experiment has not initialized a model")
-        if hasattr(self.trainer, "get_model_artifact"):
+        try:
+            self._ensure_trainer()
+        except Exception as exc:
+            logger.warning("Could not eagerly ensure trainer for artifact: %s", exc)
+
+        if self.trainer is not None and hasattr(self.trainer, "get_model_artifact"):
             return self.trainer.get_model_artifact()
 
+        with self._lock:
+            if getattr(self, "_cached_artifact_round", None) == self.current_round and getattr(self, "_cached_artifact_bytes", None):
+                return self._cached_artifact_bytes
+
+            server = getattr(self.trainer, "aggregation_server", None) if self.trainer else None
+            if server is None:
+                raise RuntimeError("The global model is not available yet")
+            model = server.get_global_model()
+            payload = {
+                "experiment_id": self.experiment_id,
+                "round": self.current_round,
+                "config": self.config.model_dump() if hasattr(self.config, "model_dump") else {},
+                "state_dict": {name: tensor.detach().cpu() for name, tensor in model.state_dict().items()},
+            }
+            buffer = io.BytesIO()
+            torch.save(payload, buffer)
+            self._cached_artifact_bytes = buffer.getvalue()
+            self._cached_artifact_round = self.current_round
+            return self._cached_artifact_bytes
+
+    def _record_aggregated_round(
+        self,
+        server: Any,
+        agg_stats: Dict[str, Any],
+        round_num: int,
+        client_metrics_list: List[Dict[str, Any]],
+        loss_val: float,
+        accuracy_val: Optional[float],
+        upload_bytes: int,
+    ) -> Dict[str, Any]:
+        """Record categorized training, privacy, and communication metrics for an aggregated round."""
+        now_ts = time.time()
+        round_entry = {
+            "round": round_num,
+            "round_number": round_num,
+            "loss": loss_val,
+            "global_loss": loss_val,
+            "accuracy": accuracy_val,
+            "global_accuracy": accuracy_val,
+            "num_clients": len(server.participating_clients),
+            "totalRounds": getattr(self.config, "num_rounds", 100),
+            "client_metrics": client_metrics_list,
+            "aggregation_method": agg_stats.get("aggregation_method", "fedavg"),
+            "timestamp": now_ts,
+        }
+
+        eps = agg_stats.get("epsilon")
+        if eps is None and getattr(server, "privacy_budget", None) is not None:
+            try:
+                eps = float(server.privacy_budget.epsilon(getattr(self.config, "delta", 1e-5)))
+            except Exception:
+                eps = None
+        target_eps = getattr(self.config, "epsilon", None) or 1.0
+        pct_consumed = min(100.0, (float(eps) / float(target_eps)) * 100.0) if isinstance(eps, (int, float)) else None
+        privacy_entry = {
+            "round": round_num,
+            "round_number": round_num,
+            "epsilon": float(eps) if isinstance(eps, (int, float)) else None,
+            "delta": getattr(self.config, "delta", 1e-5),
+            "mechanism": agg_stats.get("aggregation_method", "fedavg"),
+            "clip_norm": agg_stats.get("clip_norm"),
+            "noise_multiplier": agg_stats.get("noise_multiplier"),
+            "percentageConsumed": pct_consumed,
+            "timestamp": now_ts,
+        }
+
+        rejected_map = agg_stats.get("rejected_updates", {})
+        comm_entry = {
+            "round": round_num,
+            "round_number": round_num,
+            "round_upload_bytes": int(upload_bytes),
+            "bytes_transferred": int(upload_bytes),
+            "accepted_updates": int(agg_stats.get("accepted_updates", len(client_metrics_list))),
+            "rejected_updates": rejected_map,
+            "participating_clients": int(len(server.participating_clients)),
+            "num_clients": int(len(server.participating_clients)),
+            "timestamp": now_ts,
+        }
+
+        snapshot = {
+            "training": [round_entry],
+            "privacy": [privacy_entry],
+            "communication": [comm_entry],
+        }
+
+        with self._lock:
+            self.current_round = round_num
+            self._cached_artifact_round = None
+            self._cached_artifact_bytes = None
+            self.metrics_history.append({
+                "experiment_id": self.experiment_id,
+                "round_number": round_num,
+                "timestamp": now_ts,
+                "global_loss": loss_val,
+                "global_accuracy": accuracy_val,
+                "metrics": snapshot,
+            })
+
+        return {
+            "round_entry": round_entry,
+            "privacy_entry": privacy_entry,
+            "comm_entry": comm_entry,
+        }
+
+    async def async_emit_upload_updates(self, recorded: Dict[str, Any]) -> None:
+        """Push aggregated remote upload telemetry to Node callback inside async FastAPI handlers."""
+        if not self.config.callback_url or not recorded:
+            return
+        round_entry = recorded.get("round_entry", {})
+        privacy_entry = recorded.get("privacy_entry", {})
+        now_ts = round_entry.get("timestamp", time.time())
+        events = [
+            {
+                "experimentId": self.experiment_id,
+                "experiment_id": self.experiment_id,
+                "metricType": "training_round_complete",
+                "data": {
+                    "round": round_entry.get("round"),
+                    "loss": round_entry.get("loss"),
+                    "accuracy": round_entry.get("accuracy"),
+                    "totalRounds": round_entry.get("totalRounds"),
+                    "num_clients": round_entry.get("num_clients"),
+                    "client_metrics": round_entry.get("client_metrics", []),
+                },
+                "timestamp": now_ts,
+            },
+            {
+                "experimentId": self.experiment_id,
+                "experiment_id": self.experiment_id,
+                "metricType": "experiment_status_change",
+                "data": {
+                    "status": "running",
+                    "currentRound": round_entry.get("round"),
+                    "totalRounds": round_entry.get("totalRounds"),
+                },
+                "timestamp": now_ts,
+            },
+        ]
+        if privacy_entry.get("epsilon") is not None:
+            events.append({
+                "experimentId": self.experiment_id,
+                "experiment_id": self.experiment_id,
+                "metricType": "privacy_budget_update",
+                "data": privacy_entry,
+                "timestamp": now_ts,
+            })
+
+        for payload in events:
+            try:
+                await self._post(payload)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("async callback %s failed for %s: %s", payload["metricType"], self.experiment_id, exc)
+
+    def process_client_upload(
+        self,
+        client_id: str,
+        parameters: Dict[str, torch.Tensor],
+        num_samples: int,
+        metrics: Optional[Dict[str, Any]] = None,
+        auto_aggregate: bool = True,
+        upload_bytes: int = 0,
+    ) -> Dict[str, Any]:
+        """
+        Collect a client model update and aggregate it using the formulas in README.md.
+        """
+        self._ensure_trainer()
         server = getattr(self.trainer, "aggregation_server", None)
         if server is None:
-            raise RuntimeError("The global model is not available yet")
-        model = server.get_global_model()
-        payload = {
-            "experiment_id": self.experiment_id,
-            "config": self.config.model_dump() if hasattr(self.config, "model_dump") else {},
-            "state_dict": {name: tensor.detach().cpu() for name, tensor in model.state_dict().items()},
+            raise RuntimeError("Aggregation server is not initialized")
+
+        accepted = server.collect_client_updates(
+            client_id=client_id,
+            parameters=parameters,
+            num_samples=num_samples,
+            metrics=metrics or {},
+        )
+        if not accepted:
+            rejection_reason = server.rejected_updates.get(client_id, "Update rejected by aggregation server")
+            return {
+                "accepted": False,
+                "client_id": client_id,
+                "error": rejection_reason,
+            }
+
+        result = {
+            "accepted": True,
+            "client_id": client_id,
+            "pending_clients": len(server.pending_updates),
+            "status": "pending_aggregation",
+            "round": self.current_round,
         }
-        buffer = io.BytesIO()
-        torch.save(payload, buffer)
-        return buffer.getvalue()
+
+        if auto_aggregate and hasattr(server, "aggregate_updates"):
+            next_round = self.current_round + 1
+            agg_stats = server.aggregate_updates(round_num=next_round, min_clients=1)
+            loss_val = float(metrics.get("loss", metrics.get("final_loss", 0.0))) if metrics else 0.0
+            acc_val = metrics.get("local_accuracy", metrics.get("accuracy")) if metrics else None
+            acc_float = float(acc_val) if isinstance(acc_val, (int, float)) else None
+            client_bytes = int(upload_bytes or (metrics or {}).get("upload_bytes", 0))
+            recorded = self._record_aggregated_round(
+                server=server,
+                agg_stats=agg_stats,
+                round_num=next_round,
+                client_metrics_list=[{
+                    "client_id": client_id,
+                    "status": "accepted",
+                    "num_samples": num_samples,
+                    "loss": loss_val,
+                    "upload_bytes": client_bytes,
+                }],
+                loss_val=loss_val,
+                accuracy_val=acc_float,
+                upload_bytes=client_bytes,
+            )
+            result["status"] = "aggregated"
+            result["round"] = self.current_round
+            result["aggregation_stats"] = agg_stats
+            result["_recorded_event"] = recorded
+
+        return result
+
+    def trigger_manual_aggregation(self) -> Dict[str, Any]:
+        """Aggregate any pending client updates collected with auto_aggregate=False."""
+        self._ensure_trainer()
+        server = getattr(self.trainer, "aggregation_server", None)
+        if server is None or not server.pending_updates:
+            return {
+                "experiment_id": self.experiment_id,
+                "status": "no_pending_updates",
+                "round": self.current_round,
+            }
+        pending_snapshot = list(server.pending_updates.items())
+        next_round = self.current_round + 1
+        agg_stats = server.aggregate_updates(round_num=next_round, min_clients=1)
+        client_metrics_list = []
+        losses = []
+        for cid, entry in pending_snapshot:
+            m = entry.get("metrics", {})
+            c_loss = float(m.get("loss", m.get("final_loss", 0.0)))
+            losses.append(c_loss)
+            client_metrics_list.append({
+                "client_id": cid,
+                "status": "accepted",
+                "num_samples": entry.get("num_samples", 0),
+                "loss": c_loss,
+                "upload_bytes": int(m.get("upload_bytes", 0)),
+            })
+        avg_loss = float(sum(losses) / len(losses)) if losses else 0.0
+        total_bytes = sum(item["upload_bytes"] for item in client_metrics_list)
+        recorded = self._record_aggregated_round(
+            server=server,
+            agg_stats=agg_stats,
+            round_num=next_round,
+            client_metrics_list=client_metrics_list,
+            loss_val=avg_loss,
+            accuracy_val=None,
+            upload_bytes=total_bytes,
+        )
+        return {
+            "experiment_id": self.experiment_id,
+            "status": "aggregated",
+            "round": self.current_round,
+            "stats": agg_stats,
+            "_recorded_event": recorded,
+        }
+
+    def evaluate_mia_report(self) -> Dict[str, Any]:
+        """Compute live Membership Inference Attack (MIA) and DP privacy report for admin dispatch."""
+        self._ensure_trainer()
+        server = getattr(self.trainer, "aggregation_server", None)
+
+        mia_metrics: Dict[str, Any] = {
+            "mia_success_rate": None,
+            "mia_auc": None,
+            "protocol": "unavailable",
+        }
+        if self.trainer is not None and hasattr(self.trainer, "_measure_live_mia") and server is not None:
+            mia_metrics = self.trainer._measure_live_mia(self.current_round, max_samples=128)
+
+        with self._lock:
+            history = list(self.metrics_history)
+
+        privacy_history = []
+        latest_privacy: Dict[str, Any] = {}
+        for item in history:
+            priv_entries = item.get("metrics", {}).get("privacy", [])
+            if priv_entries:
+                latest_privacy = priv_entries[-1]
+                privacy_history.append({
+                    "round": item.get("round_number"),
+                    "epsilon": latest_privacy.get("epsilon"),
+                    "delta": latest_privacy.get("delta"),
+                    "mia_success_rate": latest_privacy.get("mia_success_rate"),
+                    "mia_auc": latest_privacy.get("mia_auc"),
+                })
+
+        current_epsilon = latest_privacy.get("epsilon")
+        if current_epsilon is None and getattr(server, "privacy_budget", None) is not None:
+            try:
+                current_epsilon = float(server.privacy_budget.epsilon(getattr(self.config, "delta", 1e-5)))
+            except Exception:
+                current_epsilon = None
+
+        mia_rate = mia_metrics.get("mia_success_rate")
+        mia_auc = mia_metrics.get("mia_auc")
+        if mia_rate is not None:
+            mia_metrics.setdefault("chance_baseline", 0.5)
+            mia_metrics.setdefault("privacy_leakage", max(0.0, float(mia_rate) - 0.5))
+            if float(mia_rate) > 0.6:
+                mia_metrics.setdefault("leakage_severity", "HIGH")
+            elif float(mia_rate) > 0.55:
+                mia_metrics.setdefault("leakage_severity", "MEDIUM")
+            else:
+                mia_metrics.setdefault("leakage_severity", "LOW")
+
+        participating = sorted(server.participating_clients) if server and hasattr(server, "participating_clients") else []
+        mechanism = getattr(self.trainer, "privacy_mechanism", None) or (
+            "dp_fedavg" if getattr(self.config, "epsilon", 0) > 0 else "fedavg"
+        )
+
+        report_payload = {
+            "experiment_id": self.experiment_id,
+            "experiment_name": self.config.experiment_name or self.experiment_id,
+            "round": self.current_round,
+            "status": self.status,
+            "federation_mode": getattr(self.config, "federation_mode", "simulated"),
+            "participating_clients": participating,
+            "privacy": {
+                "mechanism": mechanism,
+                "target_epsilon": getattr(self.config, "epsilon", None),
+                "target_delta": getattr(self.config, "delta", None),
+                "current_epsilon": current_epsilon,
+                "clip_norm": latest_privacy.get("clip_norm"),
+                "noise_multiplier": latest_privacy.get("noise_multiplier"),
+                "history": privacy_history,
+            },
+            "mia": {
+                "status": "measured" if mia_rate is not None else "unavailable",
+                "mia_success_rate": mia_rate,
+                "mia_auc": mia_auc,
+                "precision": mia_metrics.get("precision"),
+                "recall": mia_metrics.get("recall"),
+                "chance_baseline": mia_metrics.get("chance_baseline", 0.5),
+                "privacy_leakage": mia_metrics.get("privacy_leakage"),
+                "leakage_severity": mia_metrics.get("leakage_severity"),
+                "protocol": mia_metrics.get("protocol"),
+                "member_windows": mia_metrics.get("member_windows"),
+                "non_member_windows": mia_metrics.get("non_member_windows"),
+                "member_mean_score": mia_metrics.get("member_mean_score"),
+                "non_member_mean_score": mia_metrics.get("non_member_mean_score"),
+            },
+            "generated_at": time.time(),
+        }
+        return report_payload
+
 
 
 def _latest(metrics: Optional[List[Dict[str, Any]]], key: str) -> Optional[Any]:

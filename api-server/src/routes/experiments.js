@@ -14,6 +14,7 @@ const { logAction, AuditActionType } = require('../services/auditService');
 const {
   saveExperiment,
   listExperiments: listPersistedExperiments,
+  listFederatedExperiments: listPersistedFederatedExperiments,
   getExperiment: getPersistedExperiment,
   updateExperiment: updatePersistedExperiment,
   deleteExperiment: deletePersistedExperiment,
@@ -360,6 +361,69 @@ router.get(
     } catch (error) {
       throw error;
     }
+  })
+);
+
+/**
+ * GET /api/experiments/federated
+ * List federated experiments open for authenticated client participation (model download,
+ * local training/inference, and weight upload). Exposes only experiment metadata/round state.
+ */
+router.get(
+  '/federated',
+  authenticate,
+  validateQuery(experimentQuerySchema),
+  asyncHandler(async (req, res) => {
+    const { status, limit, offset } = req.query;
+    const cacheKey = `experiments:federated:${status || 'all'}:${limit}:${offset}`;
+    const cachedData = experimentCache.get(cacheKey);
+    if (cachedData) {
+      return res.status(200).json({
+        ...cachedData,
+        cached: true,
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    const persisted = process.env.NODE_ENV === 'test'
+      ? []
+      : await listPersistedFederatedExperiments({ status, limit, offset });
+
+    let experiments = persisted;
+    try {
+      const response = await axiosClient.get('/train', { params: { status, limit, offset } });
+      const runtimeExperiments = response.data.experiments || [];
+      const persistedById = new Map(persisted.map((e) => [e.experiment_id, e]));
+      if (runtimeExperiments.length > 0) {
+        experiments = runtimeExperiments.map((runtime) => {
+          const p = persistedById.get(runtime.experiment_id);
+          return p
+            ? {
+                ...p,
+                status: runtime.status ?? p.status,
+                current_round: runtime.current_round ?? p.current_round,
+                total_rounds: runtime.total_rounds ?? p.total_rounds,
+              }
+            : runtime;
+        });
+      }
+    } catch (err) {
+      // Fallback to persisted list when runtime backend is busy
+    }
+
+    const responseData = {
+      experiments,
+      total: experiments.length,
+      limit,
+      offset,
+    };
+    experimentCache.set(cacheKey, responseData, 10);
+
+    return res.status(200).json({
+      ...responseData,
+      cached: false,
+      timestamp: new Date().toISOString(),
+    });
   })
 );
 
@@ -1429,18 +1493,31 @@ router.get(
   asyncHandler(async (req, res) => {
     const { id } = req.params;
     const user = req.user;
-    const experiment = experimentCache.get(`experiment:${id}`);
+    let experiment = experimentCache.get(`experiment:${id}`);
+    if (!experiment) {
+      experiment = await getPersistedExperiment(id);
+    }
+    if (!experiment) {
+      try {
+        const statusRes = await axiosClient.get(`/train/${id}/status`);
+        experiment = { experiment_id: id, userId: user.userId, ...statusRes.data };
+      } catch (e) {
+        // proceed to model fetch
+      }
+    }
 
-    if (!experiment || !hasExperimentAccess(user, experiment)) {
-      throw new AppError('Access denied: You do not have permission to download this model', 403, {
-        experiment_id: id,
-      });
+    // In federated learning, all authenticated clients are permitted to download the global model
+    if (!user) {
+      throw new AppError('Authentication required to download model', 401);
     }
 
     try {
       const response = await axiosClient.get(`/api/train/${id}/model`, {
         responseType: 'arraybuffer',
         headers: { Accept: 'application/octet-stream' },
+        timeout: 180000,
+        maxContentLength: Infinity,
+        maxBodyLength: Infinity,
       });
       res.setHeader('Content-Type', 'application/octet-stream');
       res.setHeader('Content-Disposition', `attachment; filename="${id}-global-model.pt"`);
@@ -1452,6 +1529,253 @@ router.get(
       }
       if (error.response?.status === 409) {
         throw new AppError('Global model is not available yet', 409, { experiment_id: id });
+      }
+      throw error;
+    }
+  })
+);
+
+async function syncAggregatedRoundCacheAndDb({ id, round, clientId, aggStats, req }) {
+  const cacheKey = `experiment:${id}`;
+  const existing = experimentCache.get(cacheKey);
+  if (existing && typeof round === 'number') {
+    experimentCache.set(
+      cacheKey,
+      {
+        ...existing,
+        status: 'running',
+        current_round: round,
+        updated_at: new Date().toISOString(),
+      },
+      0
+    );
+  }
+  const keys = experimentCache.keys();
+  keys.forEach((key) => {
+    if (
+      key.startsWith('experiments:list:') ||
+      key.startsWith('experiments:federated:') ||
+      key.startsWith(`metrics:${id}:`)
+    ) {
+      experimentCache.del(key);
+    }
+  });
+
+  if (process.env.NODE_ENV !== 'test' && typeof round === 'number') {
+    try {
+      await updatePersistedExperiment(id, {
+        status: 'running',
+        current_round: round,
+      });
+    } catch (e) {
+      // Non-fatal if DB row wasn't created via Node API
+    }
+  }
+
+  const wsServer = req.app.locals.wsServer;
+  if (wsServer && typeof round === 'number') {
+    wsServer.broadcastTrainingRoundComplete(id, {
+      round,
+      status: 'aggregated',
+      client_id: clientId,
+      clientsParticipated: aggStats?.num_participating_clients || 1,
+      totalRounds: existing?.total_rounds || existing?.config?.num_rounds,
+      loss: 0.0,
+    });
+    if (aggStats && typeof aggStats.epsilon === 'number') {
+      const targetEps = existing?.config?.epsilon || 1.0;
+      wsServer.broadcastPrivacyBudgetUpdate(id, {
+        round,
+        epsilon: aggStats.epsilon,
+        delta: existing?.config?.delta || 1e-5,
+        percentageConsumed: Math.min(100, (aggStats.epsilon / targetEps) * 100),
+      });
+    }
+  }
+}
+
+/**
+ * GET /api/experiments/:id/federated-status
+ * Fetch sanitized round, client participation, and communication telemetry for federated clients.
+ */
+router.get(
+  '/:id/federated-status',
+  authenticate,
+  validateParams(experimentIdSchema),
+  asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    try {
+      const [statusRes, trainRes, privRes, commRes] = await Promise.all([
+        axiosClient.get(`/train/${id}/status`),
+        axiosClient.get(`/train/${id}/metrics/training`, { params: { limit: 100, offset: 0 } }),
+        axiosClient.get(`/train/${id}/metrics/privacy`, { params: { limit: 100, offset: 0 } }),
+        axiosClient.get(`/train/${id}/metrics/communication`, { params: { limit: 100, offset: 0 } }),
+      ]);
+      return res.status(200).json({
+        experiment_id: id,
+        status: statusRes.data?.status,
+        current_round: statusRes.data?.current_round ?? 0,
+        total_rounds: statusRes.data?.total_rounds ?? 0,
+        training: trainRes.data?.metrics || [],
+        privacy: privRes.data?.metrics || [],
+        communication: commRes.data?.metrics || [],
+        timestamp: new Date().toISOString(),
+      });
+    } catch (error) {
+      if (error.response?.status === 404) {
+        throw new AppError('Experiment not found', 404, { experiment_id: id });
+      }
+      throw error;
+    }
+  })
+);
+
+/**
+ * POST /api/experiments/:id/model/upload
+ * Upload locally trained client model update and aggregate into global model.
+ */
+router.post(
+  '/:id/model/upload',
+  authenticate,
+  validateParams(experimentIdSchema),
+  asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    try {
+      let response;
+      const contentType = req.headers['content-type'] || '';
+      if (contentType.includes('multipart/form-data')) {
+        response = await axiosClient.post(`/api/train/${id}/model/upload`, req, {
+          headers: {
+            'Content-Type': contentType,
+            'X-Client-Id': req.headers['x-client-id'] || req.user?.username || 'client_remote',
+          },
+          timeout: 180000,
+          maxBodyLength: Infinity,
+          maxContentLength: Infinity,
+        });
+      } else if (Buffer.isBuffer(req.body)) {
+        response = await axiosClient.post(`/api/train/${id}/model/upload`, req.body, {
+          headers: {
+            'Content-Type': 'application/octet-stream',
+            'X-Client-Id': req.headers['x-client-id'] || req.user?.username || 'client_remote',
+            'X-Num-Samples': req.headers['x-num-samples'] || '100',
+          },
+          timeout: 180000,
+          maxBodyLength: Infinity,
+          maxContentLength: Infinity,
+        });
+      } else {
+        response = await axiosClient.post(`/api/train/${id}/model/upload`, req.body, {
+          timeout: 180000,
+          maxBodyLength: Infinity,
+          maxContentLength: Infinity,
+        });
+      }
+
+      if (response.data?.round != null) {
+        await syncAggregatedRoundCacheAndDb({
+          id,
+          round: response.data.round,
+          clientId: response.data.client_id,
+          aggStats: response.data.aggregation_stats,
+          req,
+        });
+      }
+
+      return res.status(200).json(response.data);
+    } catch (error) {
+      if (error.response?.status === 404) {
+        throw new AppError('Experiment not found', 404, { experiment_id: id });
+      }
+      if (error.response?.status === 422) {
+        throw new AppError(error.response.data?.detail || 'Update rejected by aggregation server', 422);
+      }
+      throw error;
+    }
+  })
+);
+
+/**
+ * POST /api/experiments/:id/clients/update
+ * Submit remote client update via JSON.
+ */
+router.post(
+  '/:id/clients/update',
+  asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    const authHeader = req.headers.authorization;
+    try {
+      const response = await axiosClient.post(`/api/train/${id}/clients/update`, req.body, {
+        headers: authHeader ? { Authorization: authHeader } : {},
+        timeout: 180000,
+      });
+      if (response.data?.round != null && response.data?.status === 'aggregated') {
+        await syncAggregatedRoundCacheAndDb({
+          id,
+          round: response.data.round,
+          clientId: response.data.client_id,
+          aggStats: response.data.aggregation_stats,
+          req,
+        });
+      }
+      return res.status(200).json(response.data);
+    } catch (error) {
+      if (error.response?.status === 404) {
+        throw new AppError('Experiment not found', 404, { experiment_id: id });
+      }
+      if (error.response?.status === 422) {
+        throw new AppError(error.response.data?.detail || 'Update rejected', 422);
+      }
+      throw error;
+    }
+  })
+);
+
+/**
+ * POST /api/experiments/:id/clients/enroll
+ * Enroll a remote client.
+ */
+router.post(
+  '/:id/clients/enroll',
+  asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    try {
+      const response = await axiosClient.post(`/api/train/${id}/clients/enroll`, req.body);
+      return res.status(200).json(response.data);
+    } catch (error) {
+      if (error.response?.status === 404) {
+        throw new AppError('Experiment not found', 404, { experiment_id: id });
+      }
+      throw error;
+    }
+  })
+);
+
+/**
+ * POST /api/experiments/:id/aggregate
+ * Trigger aggregation of collected updates.
+ */
+router.post(
+  '/:id/aggregate',
+  authenticate,
+  validateParams(experimentIdSchema),
+  asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    try {
+      const response = await axiosClient.post(`/api/train/${id}/aggregate`);
+      if (response.data?.status === 'aggregated' && response.data?.round != null) {
+        await syncAggregatedRoundCacheAndDb({
+          id,
+          round: response.data.round,
+          clientId: 'batch',
+          aggStats: response.data.stats,
+          req,
+        });
+      }
+      return res.status(200).json(response.data);
+    } catch (error) {
+      if (error.response?.status === 404) {
+        throw new AppError('Experiment not found', 404, { experiment_id: id });
       }
       throw error;
     }

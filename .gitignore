@@ -108,3 +108,11 @@ yarn.lock
 tmp/
 temp/
 *.tmp
+
+# Credentials and secrets
+CREDENTIALS.md
+credentials.md
+credentials.txt
+credentials.json
+*credential*
+*password*

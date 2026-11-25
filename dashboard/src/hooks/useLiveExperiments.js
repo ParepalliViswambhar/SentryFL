@@ -32,6 +32,9 @@ const EVENT_NAMES = [
   'experiment_status_change',
   'heartbeat',
   'error',
+  'mia_report_requested',
+  'mia_report_sent',
+  'mia_report_rejected',
 ];
 
 const EPSILON_WARN_THRESHOLD = 8.0;
@@ -136,6 +139,33 @@ export default function useLiveExperiments(focusedId = null, options = {}) {
               experimentId,
               reason: data.message || 'Training error',
               stackTrace: data.details || data.code,
+            })
+          );
+          break;
+        }
+        case 'mia_report_requested': {
+          dispatch(
+            addNotification({
+              type: 'info',
+              message: `Client ${data.clientUsername || 'node'} requested an MIA privacy report`,
+            })
+          );
+          break;
+        }
+        case 'mia_report_sent': {
+          dispatch(
+            addNotification({
+              type: 'success',
+              message: `Admin sent an MIA privacy report for experiment ${experimentId}`,
+            })
+          );
+          break;
+        }
+        case 'mia_report_rejected': {
+          dispatch(
+            addNotification({
+              type: 'warning',
+              message: `MIA report request declined${data.adminNote ? `: ${data.adminNote}` : ''}`,
             })
           );
           break;

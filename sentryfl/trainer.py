@@ -16,6 +16,7 @@ Validates Requirements: 2.1-2.10, 5.7, 7.1-7.11, 18.3
 import copy
 import json
 import logging
+import os
 import random
 import torch
 import torch.nn as nn
@@ -192,13 +193,13 @@ class MainTrainer:
         
         logger.info(f"MainTrainer initialized with device={device}")
     
-    def setup(self):
+    def setup(self, initialize_clients: bool = True):
         """
         Setup all components: data, clients, server, privacy, logging.
         
         This method:
         1. Loads and partitions dataset across clients
-        2. Initializes federated clients with local data
+        2. Initializes federated clients with local data (when initialize_clients=True)
         3. Initializes aggregation server
         4. Sets up privacy modules if enabled
         5. Sets up ADMS modules if enabled
@@ -221,9 +222,13 @@ class MainTrainer:
             self.quantization_aware_training = True
             logger.info("INT8 quantization-aware training enabled for client and server models")
 
-        # 3. Initialize federated clients
-        logger.info("Step 2/6: Initializing federated clients...")
-        self._initialize_clients()
+        # 3. Initialize federated clients (skipped in remote collaborative mode
+        # where real external client machines train and upload updates).
+        if initialize_clients:
+            logger.info("Step 2/6: Initializing federated clients...")
+            self._initialize_clients()
+        else:
+            logger.info("Step 2/6: Remote federation mode; skipping in-process simulated clients")
         
         # 4. Initialize aggregation server
         logger.info("Step 3/6: Initializing aggregation server...")
@@ -232,7 +237,7 @@ class MainTrainer:
         # 5. Setup privacy modules. Client-side Opacus DP-SGD is only used in the
         # legacy record-level mechanism; DP-FedAvg adds noise server-side (already
         # configured in _initialize_server), so no per-client Opacus attach.
-        if self.privacy_mechanism == 'record_dpsgd':
+        if initialize_clients and self.privacy_mechanism == 'record_dpsgd':
             logger.info("Step 4/6: Setting up record-level DP-SGD (Opacus) modules...")
             self._setup_privacy_modules()
         elif self.privacy_mechanism == 'dp_fedavg':
@@ -243,7 +248,7 @@ class MainTrainer:
 
         # 6. Setup ADMS modules (legacy parameter-efficiency baseline). LoRA/FFA-LoRA
         # are baked into the model architecture at construction, not here.
-        if self.peft_method == 'adms':
+        if initialize_clients and self.peft_method == 'adms':
             logger.info("Step 5/6: Setting up ADMS parameter efficiency modules...")
             self._setup_adms_modules()
         else:
@@ -274,7 +279,14 @@ class MainTrainer:
         data_dict = loader.load_data(self.data_path)
         full_train_rows = len(data_dict['train'])
         full_test_rows = len(data_dict['test'])
-        max_train_rows = int(self.data_config.get('max_train_rows') or full_train_rows)
+        env_max_rows = os.environ.get('SENTRYFL_MAX_TRAIN_ROWS')
+        configured_max_rows = self.data_config.get('max_train_rows')
+        if configured_max_rows:
+            max_train_rows = int(configured_max_rows)
+        elif env_max_rows:
+            max_train_rows = min(full_train_rows, int(env_max_rows))
+        else:
+            max_train_rows = full_train_rows
         max_test_rows = int(self.data_config.get('max_test_rows') or full_test_rows)
         train_rows = min(full_train_rows, max_train_rows)
         test_rows = min(full_test_rows, max_test_rows)
@@ -347,8 +359,8 @@ class MainTrainer:
         val_windows, val_window_labels = preprocessor.create_windows(
             val_data_normalized, source_val_labels, chunk_size=chunk_size
         )
-        self.calibration_data = torch.FloatTensor(train_windows)
-        self.validation_data = torch.FloatTensor(val_windows)
+        self.calibration_data = torch.from_numpy(train_windows).float()
+        self.validation_data = torch.from_numpy(val_windows).float()
         self.validation_labels = val_window_labels
 
         logger.info(f"Created {len(train_windows)} training windows")
@@ -437,7 +449,7 @@ class MainTrainer:
         )
         
         # Convert to tensors
-        self.test_data = torch.FloatTensor(test_windows)
+        self.test_data = torch.from_numpy(test_windows).float()
         self.test_labels = test_window_labels
 
         logger.info(f"Test set: {len(test_windows)} windows")
@@ -524,17 +536,15 @@ class MainTrainer:
                 logger.warning(f"Client {client_id} has empty data shard, skipping...")
                 continue
             
-            # Convert to tensors
-            client_data_tensor = torch.FloatTensor(client_data)
-            client_labels_tensor = torch.FloatTensor(client_labels)
+            # Convert to tensors without unnecessary memory duplication
+            client_data_tensor = torch.from_numpy(client_data).float()
+            client_labels_tensor = torch.from_numpy(client_labels).float()
             
-            # Create client with a clone of the global model architecture. deepcopy
-            # preserves the exact configuration (frozen backbone, injected LoRA /
-            # FFA-LoRA adapters) that the main model was built with, unlike
-            # reconstructing from a placeholder arg list.
+            # Create client model sharing the frozen transformer backbone (e.g. GPT-2)
+            # to avoid copying 500MB of frozen weights for every client into RAM.
             client = FederatedClient(
                 client_id=f"client_{client_id}",
-                model=copy.deepcopy(self.model),
+                model=self._create_client_model(),
                 local_data=(client_data_tensor, client_labels_tensor),
                 batch_size=batch_size,
                 learning_rate=learning_rate,
@@ -549,6 +559,28 @@ class MainTrainer:
             logger.info(f"Initialized {client.client_id} with {len(client_data)} samples")
         
         logger.info(f"Total clients initialized: {len(self.clients)}")
+
+    def _create_client_model(self):
+        """
+        Create a client model instance, sharing the frozen transformer backbone (e.g. GPT-2)
+        across clients to prevent replicating 124M parameters (~500MB each) in memory.
+        Only the trainable heads/adapters (<1MB) are duplicated.
+        """
+        if (
+            hasattr(self.model, 'backbone')
+            and hasattr(self.model.backbone, 'transformer')
+            and getattr(self.model.backbone, 'freeze_backbone', False)
+            and self.model.backbone.transformer is not None
+        ):
+            transformer = self.model.backbone.transformer
+            self.model.backbone.transformer = None
+            try:
+                client_model = copy.deepcopy(self.model)
+            finally:
+                self.model.backbone.transformer = transformer
+            client_model.backbone.transformer = transformer
+            return client_model
+        return copy.deepcopy(self.model)
     
     def _get_model_init_args(self) -> tuple:
         """Get model initialization arguments (to be customized based on model type)."""
@@ -1136,9 +1168,10 @@ class MainTrainer:
         
         return metrics
 
-    def _measure_live_mia(self, round_num: int) -> Dict[str, Any]:
-        """Measure an empirical threshold membership attack after each round."""
-        max_samples = 256
+    def _measure_live_mia(self, round_num: int, max_samples: int = 256) -> Dict[str, Any]:
+        """Measure an empirical threshold membership attack on the current global model."""
+        if getattr(self, 'calibration_data', None) is None or getattr(self, 'test_data', None) is None:
+            self._load_and_partition_data()
         member_data = self.calibration_data[:max_samples]
         non_member_data = self.test_data[:max_samples]
         if len(member_data) == 0 or len(non_member_data) == 0:
@@ -1165,6 +1198,7 @@ class MainTrainer:
         ])
         candidates = np.unique(np.quantile(scores, np.linspace(0.05, 0.95, 19)))
         best_accuracy = 0.5
+        best_preds = (scores >= np.median(scores)).astype(int)
         for threshold in candidates:
             for higher_means_member in (True, False):
                 predictions = (
@@ -1172,19 +1206,35 @@ class MainTrainer:
                     if higher_means_member
                     else scores < threshold
                 ).astype(int)
-                best_accuracy = max(best_accuracy, float(np.mean(predictions == labels)))
+                acc = float(np.mean(predictions == labels))
+                if acc >= best_accuracy:
+                    best_accuracy = acc
+                    best_preds = predictions
         try:
-            from sklearn.metrics import roc_auc_score
+            from sklearn.metrics import precision_score, recall_score, roc_auc_score
             auc = float(roc_auc_score(labels, scores))
             auc = max(auc, 1.0 - auc)
+            precision = float(precision_score(labels, best_preds, zero_division=0))
+            recall = float(recall_score(labels, best_preds, zero_division=0))
         except ValueError:
             auc = 0.5
+            precision = 0.5
+            recall = 0.5
+        leakage = max(0.0, best_accuracy - 0.5)
+        severity = 'HIGH' if best_accuracy > 0.6 else ('MEDIUM' if best_accuracy > 0.55 else 'LOW')
         return {
             'mia_success_rate': best_accuracy,
             'mia_auc': auc,
+            'precision': precision,
+            'recall': recall,
+            'chance_baseline': 0.5,
+            'privacy_leakage': leakage,
+            'leakage_severity': severity,
             'protocol': 'bounded_threshold_attack',
             'member_windows': int(len(member_scores)),
             'non_member_windows': int(len(non_member_scores)),
+            'member_mean_score': float(np.mean(member_scores)),
+            'non_member_mean_score': float(np.mean(non_member_scores)),
             'round': round_num,
         }
 

@@ -28,6 +28,9 @@ const AuditActionType = {
   CONFIG_CREATE: 'config.create',
   CONFIG_UPDATE: 'config.update',
   CONFIG_DELETE: 'config.delete',
+  MIA_REPORT_REQUEST: 'mia_report.request',
+  MIA_REPORT_SEND: 'mia_report.send',
+  MIA_REPORT_REJECT: 'mia_report.reject',
 };
 
 /**

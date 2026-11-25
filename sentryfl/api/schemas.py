@@ -35,6 +35,7 @@ class ExperimentConfig(BaseModel):
     client_overlap_ratio: float = Field(0.5, ge=0, lt=1)
     aggregation_flow: str = Field("sequential_fedavg", pattern="^(standard_fedavg|sequential_fedavg)$")
     workflow_mode: str = Field("sentryfl", pattern="^(sentryfl|standard_fedavg)$")
+    federation_mode: str = Field("simulated", pattern="^(simulated|remote)$")
     device: Optional[str] = None
     config: Dict[str, Any] = Field(default_factory=dict)
 
@@ -90,6 +91,7 @@ class ExperimentConfig(BaseModel):
         })
         result.setdefault("privacy", {}).update({
             "enabled": self.epsilon > 0 and self.workflow_mode == "sentryfl",
+            "mechanism": "dp_fedavg",
             "epsilon": self.epsilon,
             "delta": self.delta,
         })

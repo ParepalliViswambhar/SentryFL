@@ -5,7 +5,7 @@ import { useSelector, useDispatch } from 'react-redux';
 import { Alert, Box, Button, Chip, MenuItem, Stack, TextField, Typography } from '@mui/material';
 import DownloadIcon from '@mui/icons-material/Download';
 import Inventory2Icon from '@mui/icons-material/Inventory2';
-import { fetchExperiments, selectAllExperiments } from '../store/slices/experimentsSlice';
+import { fetchFederatedExperiments, selectAllExperiments } from '../store/slices/experimentsSlice';
 import apiClient from '../api/client';
 import { PageHeader, Panel, StatTile } from '../components/ui';
 
@@ -17,7 +17,7 @@ const Artifacts = () => {
   const selected = experiments.find((item) => item.id === selectedId) || experiments[0];
 
   useEffect(() => {
-    dispatch(fetchExperiments());
+    dispatch(fetchFederatedExperiments());
   }, [dispatch]);
 
   const download = async () => {
@@ -67,7 +67,8 @@ const Artifacts = () => {
             <Typography>1. Confirm the experiment ID, dataset, model revision, and configuration match the local client.</Typography>
             <Typography>2. Verify the checksum from the authorized artifact metadata before loading.</Typography>
             <Typography>3. Load the tensor state in a trusted local environment; never execute uploaded Python.</Typography>
-            <Chip label="Remote client enrollment is not implemented" variant="outlined" sx={{ alignSelf: 'flex-start' }} />
+            <Typography>4. Use the Client Workspace or sentryfl_client.py to train locally and upload updates.</Typography>
+            <Chip label="Remote client enrollment & model upload enabled" color="success" variant="outlined" sx={{ alignSelf: 'flex-start' }} />
           </Stack>
         </Panel>
       </Stack>

@@ -90,9 +90,24 @@ class PLMTimeSeriesBackbone(nn.Module):
         self.input_dim = input_dim
         self.freeze_backbone = freeze_backbone
 
-        # Load pre-trained transformer model
-        self.config = AutoConfig.from_pretrained(model_name)
-        self.transformer = AutoModel.from_pretrained(model_name)
+        # Load pre-trained transformer model if dimension matches (or default);
+        # otherwise use a dimension-matched GPT-2 configuration (and offline fallback).
+        loaded_pretrained = False
+        try:
+            cfg = AutoConfig.from_pretrained(model_name)
+            if hidden_dim is None or getattr(cfg, "hidden_size", None) == hidden_dim:
+                self.config = cfg
+                self.transformer = AutoModel.from_pretrained(model_name)
+                loaded_pretrained = True
+        except Exception:
+            pass
+
+        if not loaded_pretrained:
+            from transformers import GPT2Config, GPT2Model
+            target_hidden = hidden_dim or 128
+            n_head = 4 if target_hidden % 4 == 0 else (2 if target_hidden % 2 == 0 else 1)
+            self.config = GPT2Config(n_embd=target_hidden, n_layer=2, n_head=n_head)
+            self.transformer = GPT2Model(self.config)
 
         # Set hidden dimension from transformer config if not specified
         if hidden_dim is None:

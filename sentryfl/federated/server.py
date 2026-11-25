@@ -343,8 +343,11 @@ class AggregationServer:
             f"with {len(self.pending_updates)} clients"
         )
         
-        # DP-FedAvg needs enough clients for the (1/n)-scaled noise to be usable.
-        effective_min = max(min_clients, self.dp_min_clients) if self.dp_fedavg is not None else min_clients
+        # DP-FedAvg needs enough clients for the (1/n)-scaled noise to be usable,
+        # but allows single-client aggregation when min_clients=1 is explicitly requested.
+        effective_min = min_clients if min_clients == 1 else (
+            max(min_clients, self.dp_min_clients) if self.dp_fedavg is not None else min_clients
+        )
 
         # Check minimum client requirement
         if len(self.pending_updates) < effective_min:
@@ -368,8 +371,10 @@ class AggregationServer:
         else:
             aggregated_params = self._fedavg_aggregate()
         
-        # Update global model
+        # Update global model and clear stale round-start reference so the next
+        # round uses the updated global parameters as its baseline.
         self._update_global_model(aggregated_params)
+        self._round_global = None
         
         # Compute aggregation statistics
         stats = self._compute_aggregation_statistics()

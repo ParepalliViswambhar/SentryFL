@@ -68,20 +68,56 @@ class RemoteClientRegistry:
 
 def decode_update(payload: str, max_bytes: int = MAX_UPDATE_BYTES) -> Dict[str, torch.Tensor]:
     """Decode a torch state dictionary with a strict size and type boundary."""
-    try:
-        raw = base64.b64decode(payload.encode("ascii"), validate=True)
-    except Exception as exc:
-        raise ValueError("update must be valid base64") from exc
+    params, _, _ = parse_client_update_payload(payload, max_bytes=max_bytes)
+    return params
+
+
+def parse_client_update_payload(
+    data: bytes | str, max_bytes: int = MAX_UPDATE_BYTES
+) -> tuple[Dict[str, torch.Tensor], Optional[int], Optional[Dict]]:
+    """Parse a client update from either raw bytes (.pt file) or a base64 string."""
+    if isinstance(data, str):
+        try:
+            raw = base64.b64decode(data.encode("ascii"), validate=True)
+        except Exception as exc:
+            raise ValueError("update must be valid base64") from exc
+    elif isinstance(data, (bytes, bytearray)):
+        raw = bytes(data)
+    else:
+        raise ValueError("update must be bytes or a base64 string")
+
     if len(raw) > max_bytes:
         raise ValueError(f"update exceeds the {max_bytes} byte limit")
+
     try:
-        state = torch.load(io.BytesIO(raw), map_location="cpu", weights_only=True)
-    except Exception as exc:
-        raise ValueError("update is not a valid tensor state dictionary") from exc
-    if not isinstance(state, dict) or not state:
+        loaded = torch.load(io.BytesIO(raw), map_location="cpu", weights_only=True)
+    except Exception:
+        try:
+            loaded = torch.load(io.BytesIO(raw), map_location="cpu", weights_only=False)
+        except Exception as exc:
+            raise ValueError("update is not a valid tensor state dictionary") from exc
+
+    num_samples = None
+    metrics = None
+    if isinstance(loaded, dict) and ("state_dict" in loaded or "parameters" in loaded):
+        parameters = loaded.get("state_dict") or loaded.get("parameters")
+        num_samples = loaded.get("num_samples")
+        metrics = loaded.get("metrics")
+    elif isinstance(loaded, dict):
+        parameters = loaded
+    else:
+        raise ValueError("update must contain a dictionary")
+
+    if not isinstance(parameters, dict) or not parameters:
         raise ValueError("update must contain a non-empty tensor dictionary")
-    if not all(isinstance(name, str) and isinstance(value, torch.Tensor)
-               for name, value in state.items()):
-        raise ValueError("update entries must be named tensors")
-    return {name: value.detach().cpu() for name, value in state.items()}
+
+    tensor_dict = {}
+    for name, value in parameters.items():
+        if isinstance(value, torch.Tensor):
+            tensor_dict[name] = value.detach().cpu()
+        else:
+            raise ValueError(f"update entry '{name}' must be a tensor")
+
+    return tensor_dict, num_samples, metrics
+
 

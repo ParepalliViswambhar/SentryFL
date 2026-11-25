@@ -103,6 +103,7 @@ const experimentConfigSchema = Joi.object({
   client_data_mode: Joi.string().valid('redundant', 'disjoint').default('redundant'),
   client_overlap_ratio: Joi.number().min(0).max(0.99).default(0.5),
   workflow_mode: Joi.string().valid('sentryfl', 'standard_fedavg').default('sentryfl'),
+  federation_mode: Joi.string().valid('simulated', 'remote').default('simulated'),
 
   // Model-specific parameters (optional)
   model_params: Joi.object()

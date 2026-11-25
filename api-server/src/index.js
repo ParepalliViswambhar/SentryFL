@@ -41,8 +41,9 @@ app.use(
   })
 );
 app.use(morgan(process.env.LOG_FORMAT || 'combined')); // Request logging
-app.use(express.json()); // JSON body parser
-app.use(express.urlencoded({ extended: true })); // URL-encoded body parser
+app.use(express.json({ limit: '100mb' })); // JSON body parser with increased limit for model updates
+app.use(express.urlencoded({ extended: true, limit: '100mb' })); // URL-encoded body parser
+app.use(express.raw({ type: 'application/octet-stream', limit: '100mb' })); // Binary model update parser
 app.use(limiter); // Rate limiting
 
 // Health check endpoint
@@ -72,10 +73,12 @@ const experimentsRouter = require('./routes/experiments');
 const configsRouter = require('./routes/configs');
 const internalRouter = require('./routes/internal');
 const adminRouter = require('./routes/admin');
+const miaReportsRouter = require('./routes/miaReports');
 app.use('/api/auth', authRouter);
 app.use('/api/experiments', experimentsRouter);
 app.use('/api/configs', configsRouter);
 app.use('/api/admin', adminRouter);
+app.use('/api/mia-reports', miaReportsRouter);
 app.use('/internal', internalRouter);
 
 // Initialize WebSocket server

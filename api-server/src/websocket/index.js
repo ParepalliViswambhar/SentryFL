@@ -60,6 +60,7 @@ class WebSocketServer {
       try {
         const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key-change-in-production');
         socket.userId = decoded.userId || decoded.sub;
+        socket.userRole = decoded.role || 'user';
         next();
       } catch (err) {
         next(new Error('Invalid authentication token'));
@@ -73,6 +74,12 @@ class WebSocketServer {
   setupConnectionHandler() {
     this.io.on('connection', (socket) => {
       console.info(`WebSocket client connected: ${socket.id} (User: ${socket.userId})`);
+      if (socket.userId) {
+        socket.join(`user:${socket.userId}`);
+      }
+      if (socket.userRole) {
+        socket.join(`role:${socket.userRole}`);
+      }
 
       // Handle subscription to experiment rooms
       socket.on('subscribe', (experimentId) => {
@@ -243,6 +250,77 @@ class WebSocketServer {
     this.io.to(room).emit('error', event);
     this.bufferEvent(experimentId, event);
     console.error(`Broadcast error to ${room}:`, event.data);
+  }
+
+  /**
+   * Notify admins when a client requests an MIA privacy report.
+   * @param {object} request - MIA report request summary
+   */
+  broadcastMiaReportRequested(request) {
+    const event = {
+      type: 'mia_report_requested',
+      experimentId: request.experiment_id,
+      timestamp: new Date().toISOString(),
+      data: {
+        requestId: request.request_id,
+        experimentId: request.experiment_id,
+        clientUserId: request.client_user_id,
+        clientUsername: request.client_username,
+        note: request.request_note,
+        status: request.status,
+      },
+    };
+    this.io.to('role:admin').emit('mia_report_requested', event);
+  }
+
+  /**
+   * Deliver an MIA report notification directly to the requesting client (and admins).
+   * @param {object} request - Sent MIA report record
+   */
+  broadcastMiaReportSent(request) {
+    const event = {
+      type: 'mia_report_sent',
+      experimentId: request.experiment_id,
+      timestamp: new Date().toISOString(),
+      data: {
+        requestId: request.request_id,
+        experimentId: request.experiment_id,
+        clientUserId: request.client_user_id,
+        clientUsername: request.client_username,
+        adminUsername: request.admin_username,
+        adminNote: request.admin_note,
+        status: request.status,
+        mia: request.mia_report?.mia || null,
+        sentAt: request.sent_at,
+      },
+    };
+    if (request.client_user_id) {
+      this.io.to(`user:${request.client_user_id}`).emit('mia_report_sent', event);
+    }
+    this.io.to('role:admin').emit('mia_report_sent', event);
+  }
+
+  /**
+   * Notify the requesting client when an MIA report request is rejected.
+   * @param {object} request - Rejected MIA report record
+   */
+  broadcastMiaReportRejected(request) {
+    const event = {
+      type: 'mia_report_rejected',
+      experimentId: request.experiment_id,
+      timestamp: new Date().toISOString(),
+      data: {
+        requestId: request.request_id,
+        experimentId: request.experiment_id,
+        clientUserId: request.client_user_id,
+        adminNote: request.admin_note,
+        status: request.status,
+      },
+    };
+    if (request.client_user_id) {
+      this.io.to(`user:${request.client_user_id}`).emit('mia_report_rejected', event);
+    }
+    this.io.to('role:admin').emit('mia_report_rejected', event);
   }
 
   /**
