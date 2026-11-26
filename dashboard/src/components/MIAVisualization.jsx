@@ -229,7 +229,7 @@ const MIAVisualization = ({ miaResults = [], accountingMethod = 'RDP' }) => {
     <Stack spacing={2}>
       {/* Header */}
       <Paper sx={{ p: 2 }}>
-        <Stack direction="row" justifyContent="space-between" alignItems="center">
+        <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center' }}>
           <Box>
             <Typography variant="h5" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
               <SecurityIcon /> Membership Inference Attack Analysis
@@ -258,7 +258,7 @@ const MIAVisualization = ({ miaResults = [], accountingMethod = 'RDP' }) => {
 
       {/* MIA Success Rate vs Epsilon Chart */}
       <Paper sx={{ p: 2 }}>
-        <Stack direction="row" justifyContent="space-between" alignItems="center" mb={2}>
+        <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
           <Typography variant="h6">Attack Success Rate vs Privacy Budget</Typography>
           <ExportButton 
             chartRef={successRateChartRef} 
@@ -281,7 +281,7 @@ const MIAVisualization = ({ miaResults = [], accountingMethod = 'RDP' }) => {
 
       {/* Privacy Level Comparison Chart */}
       <Paper sx={{ p: 2 }}>
-        <Stack direction="row" justifyContent="space-between" alignItems="center" mb={2}>
+        <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
           <Typography variant="h6">Privacy Leakage by Privacy Level</Typography>
           <ExportButton 
             chartRef={comparisonChartRef} 

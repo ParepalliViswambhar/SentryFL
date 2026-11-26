@@ -181,11 +181,11 @@ export function RunProgress({ status, value = 0, current = 0, total, start, end,
         value={initializing ? undefined : Math.min(100, value)}
         sx={{ mb: 0.75 }}
       />
-      <Stack direction="row" justifyContent="space-between" alignItems="center" gap={1}>
+      <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center', gap: 1 }}>
         <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
           {leftLabel}
         </Typography>
-        <Stack direction="row" alignItems="center" gap={1.5}>
+        <Stack direction="row" sx={{ alignItems: 'center', gap: 1.5 }}>
           {!initializing && (
             <Typography variant="caption" color="text.secondary" sx={{ fontVariantNumeric: 'tabular-nums' }}>
               {Math.round(Math.min(100, value))}%

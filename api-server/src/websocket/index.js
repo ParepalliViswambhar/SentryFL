@@ -5,6 +5,7 @@
 
 const { Server } = require('socket.io');
 const jwt = require('jsonwebtoken');
+const { getExperiment } = require('../services/experimentService');
 
 class WebSocketServer {
   constructor(httpServer) {
@@ -81,8 +82,25 @@ class WebSocketServer {
         socket.join(`role:${socket.userRole}`);
       }
 
-      // Handle subscription to experiment rooms
-      socket.on('subscribe', (experimentId) => {
+      // Handle subscription to experiment rooms (scoped by ownership / remote mode)
+      socket.on('subscribe', async (experimentId) => {
+        if (process.env.NODE_ENV !== 'test' && socket.userRole !== 'admin') {
+          try {
+            const exp = await getExperiment(experimentId);
+            const isRemote = exp?.config?.federation_mode === 'remote';
+            const isOwner = exp && exp.userId === socket.userId;
+            if (!exp || (!isRemote && !isOwner)) {
+              socket.emit('error', {
+                type: 'error',
+                experimentId,
+                data: { message: 'Access denied to experiment stream', code: 'FORBIDDEN' },
+              });
+              return;
+            }
+          } catch (err) {
+            return;
+          }
+        }
         const room = `experiment:${experimentId}`;
         socket.join(room);
         console.info(`Client ${socket.id} subscribed to ${room}`);

@@ -152,7 +152,7 @@ const PrivacyEvaluation = () => {
                       key={reqItem.request_id}
                       sx={{ p: 2, borderRadius: 2, bgcolor: 'action.hover', border: '1px solid', borderColor: 'divider' }}
                     >
-                      <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" spacing={1} alignItems={{ sm: 'center' }} sx={{ mb: 1 }}>
+                      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ justifyContent: 'space-between', alignItems: { sm: 'center' }, mb: 1 }}>
                         <Box>
                           <Typography fontWeight={700}>
                             Client: {reqItem.client_username} · Experiment {reqItem.experiment_id}
@@ -178,7 +178,7 @@ const PrivacyEvaluation = () => {
                         </Stack>
                       )}
 
-                      <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.5} alignItems={{ md: 'center' }}>
+                      <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.5} sx={{ alignItems: { md: 'center' } }}>
                         <TextField
                           size="small"
                           label="Admin review note (optional)"

@@ -28,9 +28,13 @@ const saveExperiment = async (experiment) => {
       total_rounds, start_time, end_time, error, created_at, updated_at
     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
     ON CONFLICT (experiment_id) DO UPDATE SET
-      user_id = EXCLUDED.user_id,
-      username = EXCLUDED.username,
-      config = EXCLUDED.config,
+      user_id = COALESCE(EXCLUDED.user_id, experiments.user_id),
+      username = COALESCE(EXCLUDED.username, experiments.username),
+      config = CASE
+        WHEN EXCLUDED.config = '{}'::jsonb AND experiments.config IS NOT NULL AND experiments.config <> '{}'::jsonb
+          THEN experiments.config
+        ELSE EXCLUDED.config
+      END,
       status = EXCLUDED.status,
       current_round = EXCLUDED.current_round,
       total_rounds = EXCLUDED.total_rounds,
@@ -84,7 +88,7 @@ const listExperiments = async ({ userId, isAdmin, status, limit, offset }) => {
 
 const listFederatedExperiments = async ({ status, limit = 100, offset = 0 } = {}) => {
   const values = [];
-  const filters = [];
+  const filters = [`(config->>'federation_mode') = 'remote'`];
   if (status) {
     values.push(status);
     filters.push(`status = $${values.length}`);
@@ -93,7 +97,7 @@ const listFederatedExperiments = async ({ status, limit = 100, offset = 0 } = {}
   const limitParam = values.length;
   values.push(offset);
   const offsetParam = values.length;
-  const where = filters.length ? `WHERE ${filters.join(' AND ')}` : '';
+  const where = `WHERE ${filters.join(' AND ')}`;
   const result = await db.query(
     `SELECT * FROM experiments ${where}
      ORDER BY created_at DESC

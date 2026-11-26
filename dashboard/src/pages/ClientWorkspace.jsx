@@ -20,7 +20,7 @@ import CheckCircleRoundedIcon from '@mui/icons-material/CheckCircleRounded';
 import TerminalRoundedIcon from '@mui/icons-material/TerminalRounded';
 import RefreshRoundedIcon from '@mui/icons-material/RefreshRounded';
 import SecurityRoundedIcon from '@mui/icons-material/SecurityRounded';
-import { fetchFederatedExperiments, selectAllExperiments } from '../store/slices/experimentsSlice';
+import { fetchFederatedExperiments, selectFederatedExperiments } from '../store/slices/experimentsSlice';
 import { selectCurrentUser } from '../store/slices/authSlice';
 import apiClient from '../api/client';
 import { PageHeader, Panel, StatTile, StatusChip } from '../components/ui';
@@ -34,7 +34,7 @@ const severityColor = (severity) => {
 const ClientWorkspace = () => {
   const dispatch = useDispatch();
   const currentUser = useSelector(selectCurrentUser);
-  const experiments = useSelector(selectAllExperiments);
+  const experiments = useSelector(selectFederatedExperiments);
   const [selectedExpId, setSelectedExpId] = useState('');
 
   // Active experiment
@@ -87,9 +87,16 @@ const ClientWorkspace = () => {
   }, [loadWorkspaceData]);
 
   const trainingEntries = federatedStatus?.training || [];
-  const latestTraining = trainingEntries.length ? trainingEntries[trainingEntries.length - 1] : null;
-  const latestTrainRecord = latestTraining?.data?.[0] || latestTraining || {};
-  const clientMetrics = latestTrainRecord?.client_metrics || [];
+  const ownClientId = currentUser?.username || clientId;
+  const mySubmissions = trainingEntries.flatMap((entry) => {
+    const roundNum = entry?.round ?? entry?.round_number;
+    const rows = Array.isArray(entry?.data) ? entry.data : [entry];
+    return rows.flatMap((rec) =>
+      (rec?.client_metrics || [])
+        .filter((c) => c?.client_id === ownClientId)
+        .map((c) => ({ ...c, round: c.round ?? rec?.round ?? roundNum }))
+    );
+  });
 
   const commEntries = federatedStatus?.communication || [];
   const latestComm = commEntries.length ? commEntries[commEntries.length - 1] : null;
@@ -247,7 +254,7 @@ const ClientWorkspace = () => {
         subtitle="Log in, download the latest global model, run local inference or finetuning on private data, upload updates, and request MIA privacy reports."
         icon={<DeviceHubRoundedIcon />}
         actions={(
-          <Stack direction="row" spacing={1} alignItems="center">
+          <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
             <Button size="small" variant="outlined" startIcon={<RefreshRoundedIcon />} onClick={loadWorkspaceData}>
               Refresh state
             </Button>
@@ -347,7 +354,7 @@ const ClientWorkspace = () => {
             <Box sx={{ display: 'flex', gap: 1.5, alignItems: 'flex-start' }}>
               <TerminalRoundedIcon color="primary" sx={{ fontSize: 28 }} />
               <Box sx={{ width: '100%' }}>
-                <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" spacing={1} alignItems={{ sm: 'center' }} sx={{ mb: 1.5 }}>
+                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ justifyContent: 'space-between', alignItems: { sm: 'center' }, mb: 1.5 }}>
                   <Box>
                     <Typography fontWeight={700}>
                       Client Training &amp; Inference Code (Run on your device)
@@ -498,7 +505,7 @@ const ClientWorkspace = () => {
               </Alert>
             )}
 
-            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems={{ sm: 'center' }}>
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ alignItems: { sm: 'center' } }}>
               <TextField
                 label="Request Note (Optional)"
                 placeholder="e.g., Requesting MIA privacy leakage evaluation after Round upload"
@@ -538,7 +545,7 @@ const ClientWorkspace = () => {
                       key={reqItem.request_id}
                       sx={{ p: 2, borderRadius: 2, bgcolor: 'action.hover', border: '1px solid', borderColor: 'divider' }}
                     >
-                      <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" spacing={1} alignItems={{ sm: 'center' }}>
+                      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ justifyContent: 'space-between', alignItems: { sm: 'center' } }}>
                         <Box>
                           <Typography fontWeight={700}>
                             Experiment {reqItem.mia_report?.experiment_name || reqItem.experiment_id}
@@ -603,17 +610,17 @@ const ClientWorkspace = () => {
           </Stack>
         </Panel>
 
-        {/* 5. Latest Client Activity */}
-        <Panel title="Federated Network Participation" subtitle="Participating client update telemetry and acceptance status.">
-          {clientMetrics.length === 0 ? (
+        {/* 5. My Submitted Updates (Strict client isolation: hides other clients' runs/metrics) */}
+        <Panel title="My Submitted Updates" subtitle="Weight updates submitted by your account for this global model.">
+          {mySubmissions.length === 0 ? (
             <Typography color="text.secondary">
-              No remote client updates recorded yet. Upload a client update above or run sentryfl_client.py.
+              No updates submitted by {ownClientId} yet. Run your downloaded finetuning script or upload weights above.
             </Typography>
           ) : (
             <Stack spacing={1}>
-              {clientMetrics.map((client, idx) => (
+              {mySubmissions.map((client, idx) => (
                 <Box
-                  key={`${client.client_id}-${idx}`}
+                  key={`${client.client_id}-${client.round ?? idx}-${idx}`}
                   sx={{
                     display: 'flex',
                     justifyContent: 'space-between',
@@ -625,7 +632,7 @@ const ClientWorkspace = () => {
                   }}
                 >
                   <Box>
-                    <Typography fontWeight={700}>{client.client_id}</Typography>
+                    <Typography fontWeight={700}>{client.client_id} · Round {client.round ?? '—'}</Typography>
                     <Typography variant="caption" color="text.secondary">
                       {client.num_samples} local samples · loss {client.loss == null ? '—' : Number(client.loss).toFixed(4)}
                     </Typography>

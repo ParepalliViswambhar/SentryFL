@@ -36,7 +36,8 @@ describe('Federated Discovery & MIA Report Request/Dispatch Workflow', () => {
     axiosMock.restore();
   });
 
-  test('clients can discover federated experiments created by admin while private listing stays isolated', async () => {
+  test('clients can discover remote federated experiments while simulated trainings remain isolated', async () => {
+    const simulatedId = '123e4567-e89b-12d3-a456-426614174999';
     axiosMock.onGet('/train').reply(200, {
       experiments: [
         {
@@ -45,9 +46,18 @@ describe('Federated Discovery & MIA Report Request/Dispatch Workflow', () => {
           status: 'running',
           current_round: 2,
           total_rounds: 10,
+          config: { experiment_name: 'Collaborative Run', federation_mode: 'remote' },
+        },
+        {
+          experiment_id: simulatedId,
+          userId: 'admin-uuid-1',
+          status: 'running',
+          current_round: 4,
+          total_rounds: 10,
+          config: { experiment_name: 'Private Simulated Run', federation_mode: 'simulated' },
         },
       ],
-      total: 1,
+      total: 2,
     });
 
     const fedRes = await request(app)
@@ -64,6 +74,48 @@ describe('Federated Discovery & MIA Report Request/Dispatch Workflow', () => {
       .expect(200);
 
     expect(privRes.body.experiments).toHaveLength(0);
+  });
+
+  test('federated-status hides other clients training metrics from non-admin callers', async () => {
+    axiosMock.onGet(`/train/${expId}/status`).reply(200, {
+      experiment_id: expId,
+      userId: 'admin-uuid-1',
+      status: 'running',
+      current_round: 2,
+      total_rounds: 5,
+      config: { federation_mode: 'remote' },
+    });
+    axiosMock.onGet(`/train/${expId}/metrics/training`).reply(200, {
+      metrics: [
+        {
+          round: 1,
+          client_metrics: [
+            { client_id: 'client1', num_samples: 21, loss: 0.42, status: 'accepted' },
+            { client_id: 'client2', num_samples: 35, loss: 0.31, status: 'accepted' },
+          ],
+          client_loss: { client1: 0.42, client2: 0.31 },
+        },
+      ],
+    });
+    axiosMock.onGet(`/train/${expId}/metrics/privacy`).reply(200, { metrics: [] });
+    axiosMock.onGet(`/train/${expId}/metrics/communication`).reply(200, { metrics: [] });
+
+    const clientStatusRes = await request(app)
+      .get(`/api/experiments/${expId}/federated-status`)
+      .set('Authorization', `Bearer ${client1Token}`)
+      .expect(200);
+
+    expect(clientStatusRes.body.training[0].client_metrics).toEqual([
+      expect.objectContaining({ client_id: 'client1', loss: 0.42 }),
+    ]);
+    expect(clientStatusRes.body.training[0].client_loss).toBeUndefined();
+
+    const adminStatusRes = await request(app)
+      .get(`/api/experiments/${expId}/federated-status`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .expect(200);
+
+    expect(adminStatusRes.body.training[0].client_metrics).toHaveLength(2);
   });
 
   test('complete MIA report request -> admin live evaluation & send -> client view & download lifecycle', async () => {

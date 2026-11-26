@@ -5,13 +5,13 @@ import { useSelector, useDispatch } from 'react-redux';
 import { Alert, Box, Button, Chip, MenuItem, Stack, TextField, Typography } from '@mui/material';
 import DownloadIcon from '@mui/icons-material/Download';
 import Inventory2Icon from '@mui/icons-material/Inventory2';
-import { fetchFederatedExperiments, selectAllExperiments } from '../store/slices/experimentsSlice';
+import { fetchFederatedExperiments, selectFederatedExperiments } from '../store/slices/experimentsSlice';
 import apiClient from '../api/client';
 import { PageHeader, Panel, StatTile } from '../components/ui';
 
 const Artifacts = () => {
   const dispatch = useDispatch();
-  const experiments = useSelector(selectAllExperiments);
+  const experiments = useSelector(selectFederatedExperiments);
   const [selectedId, setSelectedId] = useState('');
   const [downloadState, setDownloadState] = useState({ status: 'idle', message: '' });
   const selected = experiments.find((item) => item.id === selectedId) || experiments[0];

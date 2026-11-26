@@ -255,11 +255,43 @@ const toMetricArray = (data) => {
  * response can never wipe a round the socket already delivered. Guards against
  * a non-array `existing` (e.g. a stale object shape) so the merge never throws.
  */
+const mergeMetricRecords = (existing = {}, incoming = {}) => {
+  const merged = {
+    ...incoming,
+    ...existing,
+    loss:
+      existing.loss === 0 && typeof incoming.loss === 'number' && incoming.loss !== 0
+        ? incoming.loss
+        : (existing.loss ?? incoming.loss),
+    accuracy: existing.accuracy ?? incoming.accuracy,
+  };
+  if (
+    (!Array.isArray(existing.client_metrics) || existing.client_metrics.length === 0) &&
+    Array.isArray(incoming.client_metrics)
+  ) {
+    merged.client_metrics = incoming.client_metrics;
+  }
+  if (
+    (!existing.client_loss || Object.keys(existing.client_loss).length === 0) &&
+    incoming.client_loss
+  ) {
+    merged.client_loss = incoming.client_loss;
+  }
+  if (
+    (!Array.isArray(existing.client_ledger) || existing.client_ledger.length === 0) &&
+    Array.isArray(incoming.client_ledger)
+  ) {
+    merged.client_ledger = incoming.client_ledger;
+  }
+  return merged;
+};
+
 const mergeByRound = (existing = [], incoming = []) => {
   const base = Array.isArray(existing) ? existing : [];
   const map = new Map(base.map((metric) => [metric.round, metric]));
   incoming.forEach((metric) => {
-    if (!map.has(metric.round)) map.set(metric.round, metric);
+    const prev = map.get(metric.round);
+    map.set(metric.round, prev ? mergeMetricRecords(prev, metric) : metric);
   });
   return Array.from(map.values()).sort((a, b) => (a.round ?? 0) - (b.round ?? 0));
 };
@@ -308,7 +340,8 @@ const metricsSlice = createSlice({
       );
       
       if (existingIndex !== -1) {
-        state.training[experimentId][existingIndex] = metric;
+        const prev = state.training[experimentId][existingIndex];
+        state.training[experimentId][existingIndex] = mergeMetricRecords(metric, prev);
       } else {
         state.training[experimentId].push(metric);
         // Keep sorted by round

@@ -17,6 +17,8 @@ const db = require('./db/connection');
 const { seedDefaultAdmin } = require('./services/userService');
 
 const app = express();
+// Trust the immediate reverse proxy (nginx) so rate limiting tracks real client IPs via X-Forwarded-For.
+app.set('trust proxy', 1);
 const server = http.createServer(app);
 const PORT = process.env.PORT || 3000;
 

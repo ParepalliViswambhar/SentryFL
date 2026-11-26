@@ -180,8 +180,7 @@ export const fetchExperiments = createAsyncThunk(
 );
 
 /**
- * Async thunk to fetch federated experiments open to authenticated client nodes.
- * Falls back to `/experiments` if `/experiments/federated` is unavailable.
+ * Async thunk to fetch remote collaborative federated experiments for client nodes.
  */
 export const fetchFederatedExperiments = createAsyncThunk(
   'experiments/fetchFederated',
@@ -190,12 +189,7 @@ export const fetchFederatedExperiments = createAsyncThunk(
       const response = await apiClient.get('/experiments/federated');
       return extractExperimentList(response.data);
     } catch (error) {
-      try {
-        const fallback = await apiClient.get('/experiments');
-        return extractExperimentList(fallback.data);
-      } catch (err2) {
-        return rejectWithValue(error.response?.data || error.message);
-      }
+      return rejectWithValue(error.response?.data || error.message);
     }
   }
 );
@@ -430,14 +424,14 @@ const experimentsSlice = createSlice({
         state.error = action.payload;
       })
 
-      // Fetch federated experiments for client participation
+      // Fetch federated experiments for client participation (kept separate from admin `state.list`)
       .addCase(fetchFederatedExperiments.pending, (state) => {
         state.status = 'loading';
         state.error = null;
       })
       .addCase(fetchFederatedExperiments.fulfilled, (state, action) => {
         state.status = 'succeeded';
-        state.list = Array.isArray(action.payload) ? action.payload : [];
+        state.federatedList = Array.isArray(action.payload) ? action.payload : [];
       })
       .addCase(fetchFederatedExperiments.rejected, (state, action) => {
         state.status = 'failed';
@@ -550,6 +544,7 @@ export const {
 
 // Selectors
 export const selectAllExperiments = (state) => state.experiments.list;
+export const selectFederatedExperiments = (state) => state.experiments.federatedList ?? state.experiments.list;
 export const selectCurrentExperiment = (state) => state.experiments.current;
 export const selectExperimentsStatus = (state) => state.experiments.status;
 export const selectExperimentsError = (state) => state.experiments.error;

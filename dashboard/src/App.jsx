@@ -16,6 +16,7 @@ import store from './store';
 import { verifyToken } from './store/slices/authSlice';
 import { setStoreReference } from './api/client';
 import { ColorModeProvider } from './theme/ColorModeContext';
+import { decodeToken } from './utils/tokenUtils';
 
 // Layout components
 import Layout from './components/Layout';
@@ -69,9 +70,9 @@ function App() {
                 <Route index element={<RoleHome />} />
                 <Route path="client" element={<ClientWorkspace />} />
                 <Route path="experiments">
-                  <Route index element={<ExperimentList />} />
+                  <Route index element={<AdminRoute><ExperimentList /></AdminRoute>} />
                   <Route path="new" element={<AdminRoute><NewExperiment /></AdminRoute>} />
-                  <Route path=":id" element={<ExperimentDetail />} />
+                  <Route path=":id" element={<AdminRoute><ExperimentDetail /></AdminRoute>} />
                 </Route>
                 <Route path="comparison" element={<AdminRoute><Comparison /></AdminRoute>} />
                 <Route path="monitor" element={<AdminRoute><Monitor /></AdminRoute>} />
@@ -92,14 +93,25 @@ function App() {
   );
 }
 
+function getEffectiveRole(user) {
+  if (user?.role) return user.role;
+  const tok = typeof localStorage !== 'undefined' ? localStorage.getItem('authToken') : null;
+  if (tok && tok.split('.').length === 3) {
+    return decodeToken(tok)?.role || null;
+  }
+  return null;
+}
+
 function RoleHome() {
   const user = useSelector(selectCurrentUser);
-  return user?.role === 'admin' || !user ? <Dashboard /> : <ClientWorkspace />;
+  const role = getEffectiveRole(user);
+  return role === 'admin' || !role ? <Dashboard /> : <ClientWorkspace />;
 }
 
 function AdminRoute({ children }) {
   const user = useSelector(selectCurrentUser);
-  return user?.role === 'admin' || !user ? children : <Navigate to="/client" replace />;
+  const role = getEffectiveRole(user);
+  return role === 'admin' || !role ? children : <Navigate to="/client" replace />;
 }
 
 function AuthBootstrap({ children }) {

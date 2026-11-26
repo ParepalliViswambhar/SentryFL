@@ -144,7 +144,7 @@ const CommunicationEfficiencyMetrics = ({
           <Card>
             <CardContent>
               <Stack spacing={1}>
-                <Stack direction="row" alignItems="center" justifyContent="space-between">
+                <Stack direction="row" sx={{ alignItems: 'center', justifyContent: 'space-between' }}>
                   <Typography color="text.secondary" variant="body2">
                     Bytes per Accuracy
                   </Typography>
@@ -166,7 +166,7 @@ const CommunicationEfficiencyMetrics = ({
           <Card>
             <CardContent>
               <Stack spacing={1}>
-                <Stack direction="row" alignItems="center" justifyContent="space-between">
+                <Stack direction="row" sx={{ alignItems: 'center', justifyContent: 'space-between' }}>
                   <Typography color="text.secondary" variant="body2">
                     Total Communication
                   </Typography>
@@ -189,7 +189,7 @@ const CommunicationEfficiencyMetrics = ({
             <Card>
               <CardContent>
                 <Stack spacing={1}>
-                  <Stack direction="row" alignItems="center" justifyContent="space-between">
+                  <Stack direction="row" sx={{ alignItems: 'center', justifyContent: 'space-between' }}>
                     <Typography color="text.secondary" variant="body2">
                       Efficiency Savings
                     </Typography>
@@ -213,7 +213,7 @@ const CommunicationEfficiencyMetrics = ({
             <Card>
               <CardContent>
                 <Stack spacing={1}>
-                  <Stack direction="row" alignItems="center" justifyContent="space-between">
+                  <Stack direction="row" sx={{ alignItems: 'center', justifyContent: 'space-between' }}>
                     <Typography color="text.secondary" variant="body2">
                       Quantization Savings
                     </Typography>

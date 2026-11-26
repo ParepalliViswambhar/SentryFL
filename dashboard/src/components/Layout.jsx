@@ -71,9 +71,7 @@ const ADMIN_NAV_ITEMS = [
 ];
 
 const CLIENT_NAV_ITEMS = [
-  { text: 'Overview', icon: <DashboardIcon />, path: '/' },
   { text: 'Client workspace', icon: <AccountTreeIcon />, path: '/client' },
-  { text: 'Experiments', icon: <ExperimentIcon />, path: '/experiments' },
   { text: 'Artifacts', icon: <Inventory2Icon />, path: '/artifacts' },
 ];
 
@@ -135,8 +133,9 @@ const Layout = () => {
   };
 
   const pageTitle = useMemo(() => titleFor(location.pathname), [location.pathname]);
-  const runningCount = activeExperiments.filter((exp) => exp.status === 'running').length;
-  const navItems = !currentUser || currentUser.role === 'admin' ? ADMIN_NAV_ITEMS : CLIENT_NAV_ITEMS;
+  const isAdminView = !currentUser || currentUser.role === 'admin';
+  const runningCount = isAdminView ? activeExperiments.filter((exp) => exp.status === 'running').length : 0;
+  const navItems = isAdminView ? ADMIN_NAV_ITEMS : CLIENT_NAV_ITEMS;
 
   const drawerContent = (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -193,55 +192,59 @@ const Layout = () => {
         ))}
       </List>
 
-      {/* Always-visible active-runs rail — the persistent "something is running" signal */}
-      <Box sx={{ px: 2.5, pb: 1, mt: 'auto' }}>
-        <Divider sx={{ mb: 1.5 }} />
-        <Typography variant="overline" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
-          Active Runs {activeExperiments.length > 0 && `· ${activeExperiments.length}`}
-        </Typography>
-      </Box>
-      <Box sx={{ px: 1.5, pb: 2, overflowY: 'auto', maxHeight: { md: '38vh' } }}>
-        {activeExperiments.length === 0 ? (
-          <Typography variant="caption" color="text.disabled" sx={{ px: 1 }}>
-            No experiments running.
-          </Typography>
-        ) : (
-          <Stack spacing={0.5}>
-            {activeExperiments.map((exp) => {
-              const meta = statusMeta(exp.status);
-              const { current, total } = roundsOf(exp);
-              const dotColor = meta.color === 'default' ? 'primary' : meta.color;
-              return (
-                <ListItemButton
-                  key={exp.id}
-                  onClick={() => {
-                    navigate(`/experiments/${exp.id}`);
-                    if (isMobile) handleDrawerToggle();
-                  }}
-                  sx={{ borderRadius: 2, py: 0.75, alignItems: 'center', gap: 1 }}
-                >
-                  <LiveDot color={dotColor} size={8} pulse={meta.live} />
-                  <Box sx={{ minWidth: 0, flexGrow: 1 }}>
-                    <Typography variant="body2" noWrap sx={{ fontWeight: 600 }}>
-                      {exp.name || exp.id}
-                    </Typography>
-                    <Typography variant="caption" color="text.secondary" noWrap sx={{ display: 'block' }}>
-                      {total ? `${meta.label} · round ${current}/${total}` : meta.label}
-                    </Typography>
-                  </Box>
-                  <Typography
-                    variant="caption"
-                    color="text.secondary"
-                    sx={{ fontVariantNumeric: 'tabular-nums' }}
-                  >
-                    {Math.round(progressOf(exp))}%
-                  </Typography>
-                </ListItemButton>
-              );
-            })}
-          </Stack>
-        )}
-      </Box>
+      {/* Always-visible active-runs rail — shown only to administrators */}
+      {isAdminView && (
+        <>
+          <Box sx={{ px: 2.5, pb: 1, mt: 'auto' }}>
+            <Divider sx={{ mb: 1.5 }} />
+            <Typography variant="overline" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+              Active Runs {activeExperiments.length > 0 && `· ${activeExperiments.length}`}
+            </Typography>
+          </Box>
+          <Box sx={{ px: 1.5, pb: 2, overflowY: 'auto', maxHeight: { md: '38vh' } }}>
+            {activeExperiments.length === 0 ? (
+              <Typography variant="caption" color="text.disabled" sx={{ px: 1 }}>
+                No experiments running.
+              </Typography>
+            ) : (
+              <Stack spacing={0.5}>
+                {activeExperiments.map((exp) => {
+                  const meta = statusMeta(exp.status);
+                  const { current, total } = roundsOf(exp);
+                  const dotColor = meta.color === 'default' ? 'primary' : meta.color;
+                  return (
+                    <ListItemButton
+                      key={exp.id}
+                      onClick={() => {
+                        navigate(`/experiments/${exp.id}`);
+                        if (isMobile) handleDrawerToggle();
+                      }}
+                      sx={{ borderRadius: 2, py: 0.75, alignItems: 'center', gap: 1 }}
+                    >
+                      <LiveDot color={dotColor} size={8} pulse={meta.live} />
+                      <Box sx={{ minWidth: 0, flexGrow: 1 }}>
+                        <Typography variant="body2" noWrap sx={{ fontWeight: 600 }}>
+                          {exp.name || exp.id}
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary" noWrap sx={{ display: 'block' }}>
+                          {total ? `${meta.label} · round ${current}/${total}` : meta.label}
+                        </Typography>
+                      </Box>
+                      <Typography
+                        variant="caption"
+                        color="text.secondary"
+                        sx={{ fontVariantNumeric: 'tabular-nums' }}
+                      >
+                        {Math.round(progressOf(exp))}%
+                      </Typography>
+                    </ListItemButton>
+                  );
+                })}
+              </Stack>
+            )}
+          </Box>
+        </>
+      )}
     </Box>
   );
 
@@ -270,9 +273,11 @@ const Layout = () => {
               {pageTitle}
             </Typography>
             <Typography variant="caption" color="text.secondary" noWrap sx={{ display: { xs: 'none', sm: 'block' } }}>
-              {runningCount > 0
-                ? `${runningCount} experiment${runningCount > 1 ? 's' : ''} training now`
-                : 'No experiments training'}
+              {!isAdminView
+                ? 'Edge client workspace · local data stays private'
+                : runningCount > 0
+                  ? `${runningCount} experiment${runningCount > 1 ? 's' : ''} training now`
+                  : 'No experiments training'}
             </Typography>
           </Box>
 

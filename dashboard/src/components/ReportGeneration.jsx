@@ -185,7 +185,7 @@ const ReportGeneration = ({
     <Stack spacing={2}>
       {/* Header */}
       <Paper sx={{ p: 2 }}>
-        <Stack direction="row" justifyContent="space-between" alignItems="center">
+        <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center' }}>
           <Box>
             <Typography variant="h5" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
               <AssessmentIcon /> Report Generation

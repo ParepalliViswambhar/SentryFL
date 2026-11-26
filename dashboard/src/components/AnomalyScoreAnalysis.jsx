@@ -218,7 +218,7 @@ const AnomalyScoreAnalysis = ({
     <Stack spacing={2}>
       {/* Header */}
       <Paper sx={{ p: 2 }}>
-        <Stack direction="row" justifyContent="space-between" alignItems="center">
+        <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center' }}>
           <Box>
             <Typography variant="h5" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
               <BarChartIcon /> Anomaly Score Analysis
@@ -261,7 +261,7 @@ const AnomalyScoreAnalysis = ({
       {anomalyScores.length > 0 && (
         <Paper sx={{ p: 2 }}>
           <Stack spacing={2}>
-            <Stack direction="row" alignItems="center" gap={1}>
+            <Stack direction="row" sx={{ alignItems: 'center', gap: 1 }}>
               <TuneIcon />
               <Typography variant="h6">
                 Detection Threshold Adjustment

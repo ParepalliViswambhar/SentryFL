@@ -56,6 +56,7 @@ class ExperimentRunner:
         self._task: Optional[asyncio.Task] = None
         self._lock = threading.Lock()
         self._setup_lock = threading.Lock()
+        self._client_ledger: Dict[str, Dict[str, Any]] = {}
         # Liveness heartbeat: a daemon thread emits a periodic `heartbeat` event
         # while the run is active so the dashboard can prove work is happening
         # even before the first round lands. Overridable per-instance for tests.
@@ -497,6 +498,28 @@ class ExperimentRunner:
     ) -> Dict[str, Any]:
         """Record categorized training, privacy, and communication metrics for an aggregated round."""
         now_ts = time.time()
+        client_loss_map: Dict[str, float] = {}
+        for cm in client_metrics_list:
+            cid = cm.get("client_id")
+            if not cid:
+                continue
+            c_loss = cm.get("loss")
+            if isinstance(c_loss, (int, float)):
+                client_loss_map[cid] = float(c_loss)
+            prev = self._client_ledger.get(cid, {})
+            self._client_ledger[cid] = {
+                "client_id": cid,
+                "status": cm.get("status", "accepted"),
+                "num_samples": cm.get("num_samples", prev.get("num_samples", 0)),
+                "loss": c_loss,
+                "upload_bytes": int(cm.get("upload_bytes", 0)),
+                "total_upload_bytes": int(prev.get("total_upload_bytes", 0)) + int(cm.get("upload_bytes", 0)),
+                "round": round_num,
+                "uploads_count": int(prev.get("uploads_count", 0)) + 1,
+                "timestamp": now_ts,
+            }
+        ledger_snapshot = [dict(v) for v in self._client_ledger.values()]
+
         round_entry = {
             "round": round_num,
             "round_number": round_num,
@@ -507,6 +530,8 @@ class ExperimentRunner:
             "num_clients": len(server.participating_clients),
             "totalRounds": getattr(self.config, "num_rounds", 100),
             "client_metrics": client_metrics_list,
+            "client_loss": client_loss_map,
+            "client_ledger": ledger_snapshot,
             "aggregation_method": agg_stats.get("aggregation_method", "fedavg"),
             "timestamp": now_ts,
         }
@@ -588,6 +613,8 @@ class ExperimentRunner:
                     "totalRounds": round_entry.get("totalRounds"),
                     "num_clients": round_entry.get("num_clients"),
                     "client_metrics": round_entry.get("client_metrics", []),
+                    "client_loss": round_entry.get("client_loss", {}),
+                    "client_ledger": round_entry.get("client_ledger", []),
                 },
                 "timestamp": now_ts,
             },

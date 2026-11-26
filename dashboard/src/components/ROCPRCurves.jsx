@@ -228,7 +228,7 @@ const ROCPRCurves = ({
     <Stack spacing={2}>
       {/* Header */}
       <Paper sx={{ p: 2 }}>
-        <Stack direction="row" justifyContent="space-between" alignItems="center">
+        <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center' }}>
           <Box>
             <Typography variant="h5" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
               <AssessmentIcon /> Anomaly Detection Performance
@@ -257,7 +257,7 @@ const ROCPRCurves = ({
         {/* ROC Curve */}
         <Grid item xs={12} md={6}>
           <Paper sx={{ p: 2 }}>
-            <Stack direction="row" justifyContent="space-between" alignItems="center" mb={2}>
+            <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
               <Typography variant="h6">ROC Curve</Typography>
               <ButtonGroup size="small" variant="outlined">
                 <Button
@@ -291,7 +291,7 @@ const ROCPRCurves = ({
         {/* PR Curve */}
         <Grid item xs={12} md={6}>
           <Paper sx={{ p: 2 }}>
-            <Stack direction="row" justifyContent="space-between" alignItems="center" mb={2}>
+            <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
               <Typography variant="h6">Precision-Recall Curve</Typography>
               <ButtonGroup size="small" variant="outlined">
                 <Button

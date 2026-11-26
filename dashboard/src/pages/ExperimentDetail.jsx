@@ -10,14 +10,13 @@
  * fresh.
  */
 
-import { useEffect } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { useDispatch, useSelector } from 'react-redux';
 import { Alert, Box, Button, CircularProgress, Stack, Typography, Chip } from '@mui/material';
 import ScienceIcon from '@mui/icons-material/Science';
 import DownloadIcon from '@mui/icons-material/Download';
 import DescriptionIcon from '@mui/icons-material/Description';
-import { useState } from 'react';
 import apiClient from '../api/client';
 import {
   TrainingMetricsChart,
@@ -52,6 +51,41 @@ const ExperimentDetail = () => {
     dispatch(fetchAllMetrics(id));
     apiClient.get(`/experiments/${id}/report/data`).then(({ data }) => setRunReport(data)).catch(() => setRunReport(null));
   }, [dispatch, id]);
+
+  // All hooks must execute unconditionally before any loading/not-found return.
+  const clientLedger = useMemo(() => {
+    const map = new Map();
+    for (const metric of trainingMetrics) {
+      const roundNum = metric?.round ?? metric?.round_number;
+      const list = Array.isArray(metric?.client_ledger) && metric.client_ledger.length > 0
+        ? metric.client_ledger
+        : (metric?.client_metrics || []);
+      for (const client of list) {
+        if (!client?.client_id) continue;
+        const prev = map.get(client.client_id);
+        const bytes = Number(client.total_upload_bytes ?? client.upload_bytes ?? 0);
+        const isLedger = Array.isArray(metric?.client_ledger) && metric.client_ledger.includes(client);
+        map.set(client.client_id, {
+          ...client,
+          round: client.round ?? roundNum,
+          uploadsCount: isLedger ? (client.uploads_count ?? 1) : ((prev?.uploadsCount || 0) + 1),
+          totalUploadBytes: isLedger ? bytes : ((prev?.totalUploadBytes || 0) + Number(client.upload_bytes || 0)),
+        });
+      }
+    }
+    return Array.from(map.values());
+  }, [trainingMetrics]);
+
+  const perClientStats = useMemo(() => clientLedger.map((client) => {
+    const totalBytes = Number(client.totalUploadBytes ?? client.total_upload_bytes ?? client.upload_bytes ?? 0);
+    const rounds = Number(client.uploadsCount ?? client.uploads_count ?? 1) || 1;
+    return {
+      clientId: client.client_id,
+      totalBytes,
+      rounds,
+      avgBytesPerRound: totalBytes / rounds,
+    };
+  }), [clientLedger]);
 
   if (status === 'loading' && !experiment) {
     return (
@@ -102,7 +136,7 @@ const ExperimentDetail = () => {
         subtitle={id}
         icon={<ScienceIcon />}
         actions={(
-          <Stack direction="row" alignItems="center" gap={1}>
+          <Stack direction="row" gap={1} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
             <Button variant="outlined" startIcon={<DownloadIcon />} onClick={downloadModel}>
               Download global model
             </Button>
@@ -131,13 +165,39 @@ const ExperimentDetail = () => {
         <Panel title="Workflow evidence" subtitle="Measured mode, client topology, and final performance for this run.">
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ flexWrap: 'wrap' }}>
             <Chip label={experiment.config?.workflow_mode === 'standard_fedavg' ? 'Standard FedAvg baseline' : 'SentryFL workflow'} color={experiment.config?.workflow_mode === 'standard_fedavg' ? 'warning' : 'primary'} />
-            <Chip label={experiment.config?.client_data_mode === 'disjoint' ? 'Disjoint client shards' : 'Redundant synthetic client shards'} />
+            <Chip label={experiment.config?.federation_mode === 'remote' ? `Collaborative remote clients (${clientLedger.length} joined)` : (experiment.config?.client_data_mode === 'disjoint' ? 'Disjoint client shards' : 'Redundant synthetic client shards')} />
             {runReport?.evaluation?.f1_score != null && <Chip label={`Final F1 ${Number(runReport.evaluation.f1_score).toFixed(3)}`} />}
             {runReport?.evaluation?.auc_roc != null && <Chip label={`Final AUC ${Number(runReport.evaluation.auc_roc).toFixed(3)}`} />}
           </Stack>
           <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
             Run a SentryFL workflow and a Standard FedAvg baseline with the same dataset caps and seed, then select both in Comparison for a direct performance and privacy comparison.
           </Typography>
+        </Panel>
+
+        <Panel title={`Participating Clients (${clientLedger.length})`} subtitle="All clients that completed local finetuning and uploaded weight updates.">
+          {clientLedger.length === 0 ? (
+            <Typography color="text.secondary">Waiting for clients to complete local training and upload weights.</Typography>
+          ) : (
+            <Stack spacing={1}>
+              {clientLedger.map((client) => (
+                <Box
+                  key={client.client_id}
+                  sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 2, p: 1.5, borderRadius: 2, bgcolor: 'action.hover' }}
+                >
+                  <Box>
+                    <Typography variant="body2" fontWeight={700}>{client.client_id}</Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Round {client.round ?? '—'} · {client.num_samples} local windows · {client.uploadsCount || 1} upload(s)
+                    </Typography>
+                  </Box>
+                  <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                    <Chip size="small" label={`loss ${client.loss == null ? '—' : Number(client.loss).toFixed(4)}`} />
+                    <Chip size="small" color="success" label={client.status || 'accepted'} />
+                  </Stack>
+                </Box>
+              ))}
+            </Stack>
+          )}
         </Panel>
         {/* Training Metrics — status drives the chart's own "Live" badge from the run state. */}
         <TrainingMetricsChart
@@ -161,6 +221,7 @@ const ExperimentDetail = () => {
         <CommunicationEfficiencyMetrics
           communicationMetrics={communicationMetrics}
           trainingMetrics={trainingMetrics}
+          perClientStats={perClientStats}
         />
       </Stack>
     </Box>

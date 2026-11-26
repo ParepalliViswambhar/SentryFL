@@ -51,10 +51,33 @@ const Monitor = () => {
   const rejected = typeof latestCommunication?.rejected_updates === 'object'
     ? Object.keys(latestCommunication.rejected_updates || {}).length
     : latestCommunication?.rejected_updates;
-  const accepted = latestCommunication?.accepted_updates ?? participants;
+  const accepted = communication.length
+    ? communication.reduce((sum, item) => sum + (Number(item?.accepted_updates) || 0), 0)
+    : participants;
   const activity = useMemo(() => training.slice(-8).reverse(), [training]);
-  const latestTraining = training[training.length - 1];
-  const clientMetrics = latestTraining?.client_metrics || [];
+  const clientMetrics = useMemo(() => {
+    const map = new Map();
+    for (const metric of training) {
+      const roundNum = metric?.round ?? metric?.round_number;
+      const list = Array.isArray(metric?.client_ledger) && metric.client_ledger.length > 0
+        ? metric.client_ledger
+        : (metric?.client_metrics || []);
+      for (const client of list) {
+        if (!client?.client_id) continue;
+        const prev = map.get(client.client_id);
+        const bytes = Number(client.total_upload_bytes ?? client.upload_bytes ?? 0);
+        const isLedger = Array.isArray(metric?.client_ledger) && metric.client_ledger.includes(client);
+        map.set(client.client_id, {
+          ...client,
+          round: client.round ?? roundNum,
+          uploadsCount: isLedger ? (client.uploads_count ?? 1) : ((prev?.uploadsCount || 0) + 1),
+          totalUploadBytes: isLedger ? bytes : ((prev?.totalUploadBytes || 0) + Number(client.upload_bytes || 0)),
+        });
+      }
+    }
+    return Array.from(map.values());
+  }, [training]);
+  const participatingCount = clientMetrics.length || participants;
   const latestPrivacy = privacy[privacy.length - 1];
 
   return (
@@ -105,12 +128,12 @@ const Monitor = () => {
 
           <Box sx={{ display: 'grid', gap: 2, gridTemplateColumns: { xs: 'repeat(2, 1fr)', md: 'repeat(4, 1fr)' } }}>
             <StatTile label="Round" value={valueOrDash(current)} hint={total ? `of ${total}` : 'target unavailable'} />
-            <StatTile label="Accepted updates" value={valueOrDash(accepted)} hint="latest persisted event" accent="success" />
+            <StatTile label="Participating clients" value={valueOrDash(participatingCount)} hint={`${valueOrDash(accepted, (v) => `${v} uploads`)}`} accent="success" />
             <StatTile label="Rejected updates" value={valueOrDash(rejected)} hint="latest persisted event" accent="warning" />
             <StatTile label="Upload payload" value={valueOrDash(payload, (item) => `${(item / 1024).toFixed(1)} KiB`)} hint="serialized bytes when reported" accent="info" />
           </Box>
 
-          <Panel title="Client upload ledger" subtitle="Local training results and serialized updates from the latest round.">
+          <Panel title="Client upload ledger" subtitle="All clients that trained locally and uploaded model updates across rounds.">
             {clientMetrics.length === 0 ? (
               <Typography color="text.secondary">No client upload telemetry has arrived yet.</Typography>
             ) : (
@@ -119,11 +142,13 @@ const Monitor = () => {
                   <Box key={client.client_id} sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2, p: 1.25, borderRadius: 2, bgcolor: 'action.hover' }}>
                     <Box>
                       <Typography variant="body2" fontWeight={700}>{client.client_id}</Typography>
-                      <Typography variant="caption" color="text.secondary">{client.num_samples} local windows · {client.status}</Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        {client.num_samples} local windows · Round {client.round ?? '—'} · {client.uploadsCount || 1} upload(s) · {client.status}
+                      </Typography>
                     </Box>
                     <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', justifyContent: 'flex-end' }}>
                       <Chip size="small" label={`loss ${valueOrDash(client.loss, (item) => Number(item).toFixed(4))}`} />
-                      <Chip size="small" label={`${valueOrDash(client.upload_bytes, (item) => `${(item / 1024).toFixed(1)} KiB`)} uploaded`} />
+                      <Chip size="small" label={`${valueOrDash(client.totalUploadBytes ?? client.upload_bytes, (item) => `${(item / 1024).toFixed(1)} KiB`)} uploaded`} />
                     </Stack>
                   </Box>
                 ))}
@@ -166,7 +191,13 @@ const Monitor = () => {
                 </Box>
                 <Box>
                   <Typography variant="overline" color="text.secondary">Federation mode</Typography>
-                  <Typography>{selected?.config?.client_data_mode === 'disjoint' ? 'Process-local, disjoint client shards' : 'Process-local, redundant synthetic client shards'}</Typography>
+                  <Typography>
+                    {selected?.config?.federation_mode === 'remote'
+                      ? 'Collaborative remote client devices (raw data local only)'
+                      : selected?.config?.client_data_mode === 'disjoint'
+                        ? 'Process-local, disjoint client shards'
+                        : 'Process-local, redundant synthetic client shards'}
+                  </Typography>
                 </Box>
                 <Box>
                   <Typography variant="overline" color="text.secondary">Live MIA</Typography>

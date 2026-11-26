@@ -254,7 +254,7 @@ const TimeSeriesAnomalyPlot = ({
     <Stack spacing={2}>
       {/* Header */}
       <Paper sx={{ p: 2 }}>
-        <Stack direction="row" justifyContent="space-between" alignItems="center">
+        <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center' }}>
           <Box>
             <Typography variant="h5" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
               <TimelineIcon /> Time-Series Anomaly Visualization
@@ -279,7 +279,7 @@ const TimeSeriesAnomalyPlot = ({
 
       {/* Controls */}
       <Paper sx={{ p: 2 }}>
-        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} justifyContent="space-between" alignItems={{ sm: 'center' }}>
+        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ justifyContent: 'space-between', alignItems: { sm: 'center' } }}>
           <Stack direction="row" spacing={2}>
             <FormControlLabel
               control={

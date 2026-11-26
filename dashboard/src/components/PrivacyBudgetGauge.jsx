@@ -191,7 +191,7 @@ const PrivacyBudgetGauge = ({
     <Stack spacing={2}>
       {/* Header */}
       <Paper sx={{ p: 2 }}>
-        <Stack direction="row" justifyContent="space-between" alignItems="center">
+        <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center' }}>
           <Box>
             <Typography variant="h5">Privacy Budget Monitor</Typography>
             <Typography color="text.secondary" variant="body2">
@@ -295,7 +295,7 @@ const PrivacyBudgetGauge = ({
       {/* Budget Utilization Progress */}
       <Paper sx={{ p: 2 }}>
         <Stack spacing={1}>
-          <Stack direction="row" justifyContent="space-between" alignItems="center">
+          <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center' }}>
             <Typography variant="h6">Budget Utilization</Typography>
             <Typography variant="body2" sx={{ color: colorTheme.color, fontWeight: 600 }}>
               {utilizationPercentage.toFixed(1)}%
@@ -324,7 +324,7 @@ const PrivacyBudgetGauge = ({
 
       {/* Epsilon Consumption Chart */}
       <Paper sx={{ p: 2 }}>
-        <Stack direction="row" justifyContent="space-between" alignItems="center" mb={2}>
+        <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
           <Typography variant="h6">
             Privacy Budget Consumption Over Time
           </Typography>

@@ -127,7 +127,7 @@ const ExperimentRow = memo(({ experiment, onStop, onPause, onResume, style }) =>
       </Typography>
 
       {/* Controls */}
-      <Stack direction="row" justifyContent="flex-end" spacing={0.5}>
+      <Stack direction="row" spacing={0.5} sx={{ justifyContent: 'flex-end' }}>
         {experiment.status === 'running' && (
           <Tooltip title="Pause">
             <IconButton

@@ -47,17 +47,21 @@ const EPSILON_WARN_THRESHOLD = 8.0;
 export default function useLiveExperiments(focusedId = null, options = {}) {
   const dispatch = useDispatch();
   const token = useSelector((state) => state.auth?.token);
+  const currentUser = useSelector((state) => state.auth?.user);
+  const isAdminView = !currentUser || currentUser.role === 'admin';
   const activeExperiments = useSelector(selectActiveExperiments);
   const [status, setStatus] = useState('disconnected');
   const [error, setError] = useState(null);
   const enabled = options.enabled !== false;
 
-  // Stable, sorted list of experiment ids we want to be subscribed to.
+  // Non-admin clients stay isolated from admin/other users' training streams;
+  // their Socket.IO connection only listens to `user:<id>` MIA notifications.
   const desiredIds = useMemo(() => {
+    if (!isAdminView) return [];
     const ids = new Set(activeExperiments.map((exp) => exp.id).filter(Boolean));
     if (focusedId) ids.add(focusedId);
     return Array.from(ids).sort();
-  }, [activeExperiments, focusedId]);
+  }, [isAdminView, activeExperiments, focusedId]);
   const desiredKey = desiredIds.join('|');
 
   const desiredIdsRef = useRef(desiredIds);

@@ -297,7 +297,7 @@ const CommunicationCostChart = ({ metrics = [], title = 'Communication Costs' })
           </Box>
 
           {/* Controls */}
-          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems="center">
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ alignItems: 'center' }}>
             {/* Scale Toggle */}
             <ToggleButtonGroup
               value={scaleType}
@@ -386,7 +386,7 @@ const CommunicationCostChart = ({ metrics = [], title = 'Communication Costs' })
           </Alert>
         ) : (
           <>
-            <Stack direction="row" justifyContent="space-between" alignItems="center" mb={2}>
+            <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
               <Typography variant="h6">
                 {chartView === 'rounds' && 'Communication per Round'}
                 {chartView === 'breakdown' && 'Communication Breakdown'}

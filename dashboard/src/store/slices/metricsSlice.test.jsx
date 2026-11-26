@@ -286,5 +286,40 @@ describe('metricsSlice', () => {
         numClients: 2,
       });
     });
+
+    it('enriches thin socket stub rounds with REST client_ledger and client_loss on fetchAllMetrics', () => {
+      const stateWithStub = {
+        ...initialState,
+        training: {
+          'exp-1': [{ round: 1, status: 'aggregated', loss: 0 }],
+        },
+      };
+
+      const nextState = metricsReducer(stateWithStub, {
+        type: 'metrics/fetchAll/fulfilled',
+        payload: {
+          experimentId: 'exp-1',
+          data: {
+            metrics: [{
+              round_number: 1,
+              metrics: {
+                training: [{
+                  round: 1,
+                  loss: 0.25,
+                  client_loss: { client1: 0.25 },
+                  client_ledger: [{ client_id: 'client1', round: 1, loss: 0.25 }],
+                }],
+              },
+            }],
+          },
+        },
+      });
+
+      expect(nextState.training['exp-1'][0].loss).toBe(0.25);
+      expect(nextState.training['exp-1'][0].client_ledger).toEqual([
+        { client_id: 'client1', round: 1, loss: 0.25 },
+      ]);
+      expect(nextState.training['exp-1'][0].client_loss).toEqual({ client1: 0.25 });
+    });
   });
 });

@@ -17,7 +17,22 @@ ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip,
 const chartHeight = { height: 280 };
 
 const numeric = (value) => (typeof value === 'number' && Number.isFinite(value) ? value : null);
-const getClientLosses = (metric) => metric?.clientLosses || metric?.perClientLoss || metric?.client_loss || {};
+const getClientLosses = (metric) => {
+  const direct = metric?.clientLosses || metric?.perClientLoss || metric?.client_loss;
+  if (direct && typeof direct === 'object' && Object.keys(direct).length > 0) {
+    return direct;
+  }
+  if (Array.isArray(metric?.client_metrics) && metric.client_metrics.length > 0) {
+    const out = {};
+    for (const item of metric.client_metrics) {
+      if (item?.client_id && typeof item.loss === 'number' && Number.isFinite(item.loss)) {
+        out[item.client_id] = item.loss;
+      }
+    }
+    return out;
+  }
+  return {};
+};
 
 // Pan/zoom behaviour merged on top of the themed base for every line chart here.
 const ZOOM_EXTRAS = {
@@ -125,14 +140,24 @@ const TrainingMetricsChart = ({ metrics = [], totalRounds = 0, status = 'disconn
   return (
     <Stack spacing={2}>
       <Paper sx={{ p: 2 }}>
-        <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ sm: 'center' }} gap={1}>
+        <Stack direction={{ xs: 'column', sm: 'row' }} sx={{ justifyContent: 'space-between', alignItems: { sm: 'center' }, gap: 1 }}>
           <Box><Typography variant="h5">Training telemetry</Typography><Typography color="text.secondary">Live convergence from federated rounds</Typography></Box>
           <Chip label={status === 'connected' ? 'Live' : status} color={status === 'connected' ? 'success' : 'default'} />
         </Stack>
-        <Box sx={{ mt: 2 }}><Stack direction="row" justifyContent="space-between"><Typography variant="body2">Round {lastMetric?.round || 0} of {totalRounds || '—'}</Typography><Typography variant="body2">{Math.round(progress)}%</Typography></Stack><LinearProgress variant="determinate" value={progress} /></Box>
+        <Box sx={{ mt: 2 }}>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 2, mb: 0.75 }}>
+            <Typography variant="body2" fontWeight={600}>
+              Round {lastMetric?.round || 0} of {totalRounds || '—'}
+            </Typography>
+            <Typography variant="body2" fontWeight={600} sx={{ fontVariantNumeric: 'tabular-nums' }}>
+              {Math.round(progress)}%
+            </Typography>
+          </Box>
+          <LinearProgress variant="determinate" value={progress} />
+        </Box>
         {divergentClients.length > 0 && <Alert severity="warning" sx={{ mt: 2 }}>Divergent client loss detected: {divergentClients.join(', ')}</Alert>}
       </Paper>
-      <Stack direction="row" spacing={1} justifyContent="flex-end">
+      <Stack direction="row" spacing={1} sx={{ justifyContent: 'flex-end', flexWrap: 'wrap' }}>
         <Button aria-label="Zoom in" startIcon={<ZoomInIcon />} onClick={() => zoom('in')} disabled={rounds.length < 4}>Zoom in</Button>
         <Button aria-label="Zoom out" startIcon={<ZoomOutIcon />} onClick={() => zoom('out')} disabled={!windowSize}>Zoom out</Button>
         <Button aria-label="Reset chart zoom" startIcon={<RestartAltIcon />} onClick={reset} disabled={!windowSize}>Reset</Button>
@@ -141,21 +166,21 @@ const TrainingMetricsChart = ({ metrics = [], totalRounds = 0, status = 'disconn
       </Stack>
       {!metrics.length ? <Alert severity="info">Waiting for the first completed training round.</Alert> : <Grid container spacing={2}>
         <Grid item xs={12} md={6}><Paper sx={{ p: 2 }}>
-          <Stack direction="row" justifyContent="space-between" alignItems="center" mb={1}>
+          <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
             <Typography variant="h6">Loss by round</Typography>
             <ExportButton chartRef={lossChartRef} filename="training-loss" disabled={!metrics.length} />
           </Stack>
           <Box sx={chartHeight}><Line ref={lossChartRef} data={lossData} options={optimizedLossOptions} /></Box>
         </Paper></Grid>
         <Grid item xs={12} md={6}><Paper sx={{ p: 2 }}>
-          <Stack direction="row" justifyContent="space-between" alignItems="center" mb={1}>
+          <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
             <Typography variant="h6">Global accuracy</Typography>
             <ExportButton chartRef={accuracyChartRef} filename="global-accuracy" disabled={!metrics.length} />
           </Stack>
           <Box sx={chartHeight}><Line ref={accuracyChartRef} data={accuracyData} options={optimizedAccuracyOptions} /></Box>
         </Paper></Grid>
         <Grid item xs={12}><Paper sx={{ p: 2 }}>
-          <Stack direction="row" justifyContent="space-between" alignItems="center" mb={1}>
+          <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
             <Typography variant="h6">Per-client loss</Typography>
             <ExportButton chartRef={clientChartRef} filename="per-client-loss" disabled={!clientData.datasets.length} />
           </Stack>

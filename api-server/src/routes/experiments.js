@@ -218,7 +218,7 @@ router.post(
       // Invalidate all list caches since we added a new experiment
       const keys = experimentCache.keys();
       keys.forEach((key) => {
-        if (key.startsWith('experiments:list:')) {
+        if (key.startsWith('experiments:list:') || key.startsWith('experiments:federated:')) {
           experimentCache.del(key);
         }
       });
@@ -319,11 +319,22 @@ router.get(
           ? runtimeExperiments
           : runtimeExperiments.filter((exp) => exp.userId === user.userId);
         if (runtimeExperiments.length > 0) {
+          const persistedById = new Map(
+            persistedExperiments.map((experiment) => [experiment.experiment_id, experiment])
+          );
           experiments = ownedRuntime.map((runtime) => {
-            const persisted = persistedExperiments.find(
-              (experiment) => experiment.experiment_id === runtime.experiment_id
-            );
-            return { ...runtime, userId: persisted?.userId || runtime.userId };
+            const persisted = persistedById.get(runtime.experiment_id);
+            if (!persisted) {
+              return runtime;
+            }
+            return {
+              ...persisted,
+              ...runtime,
+              config: runtime.config || persisted.config,
+              userId: persisted.userId || runtime.userId,
+              username: persisted.username || runtime.username,
+              created_at: persisted.created_at || runtime.created_at,
+            };
           });
         }
         await Promise.all(
@@ -365,10 +376,36 @@ router.get(
   })
 );
 
+const sanitizeFederatedExperiment = (exp) => {
+  const cfg = exp.config || {};
+  return {
+    experiment_id: exp.experiment_id,
+    status: exp.status,
+    current_round: exp.current_round ?? 0,
+    total_rounds: exp.total_rounds ?? cfg.num_rounds ?? 0,
+    created_at: exp.created_at,
+    updated_at: exp.updated_at,
+    config: {
+      experiment_name: cfg.experiment_name || exp.experiment_name,
+      description: cfg.description,
+      dataset: cfg.dataset,
+      model_type: cfg.model_type,
+      federation_mode: cfg.federation_mode || exp.federation_mode || 'remote',
+      num_rounds: cfg.num_rounds ?? exp.total_rounds,
+      epsilon: cfg.epsilon,
+      delta: cfg.delta,
+    },
+  };
+};
+
+const isRemoteFederatedExperiment = (exp) =>
+  (exp?.config?.federation_mode ?? exp?.federation_mode) === 'remote';
+
 /**
  * GET /api/experiments/federated
- * List federated experiments open for authenticated client participation (model download,
- * local training/inference, and weight upload). Exposes only experiment metadata/round state.
+ * List collaborative remote federated experiments open for authenticated client
+ * participation (model download, local training/inference, and weight upload).
+ * Excludes private/simulated runs and owner details.
  */
 router.get(
   '/federated',
@@ -390,24 +427,40 @@ router.get(
       ? []
       : await listPersistedFederatedExperiments({ status, limit, offset });
 
-    let experiments = persisted;
+    let experiments = persisted.filter(isRemoteFederatedExperiment).map(sanitizeFederatedExperiment);
     try {
       const response = await axiosClient.get('/train', { params: { status, limit, offset } });
-      const runtimeExperiments = response.data.experiments || [];
-      const persistedById = new Map(persisted.map((e) => [e.experiment_id, e]));
-      if (runtimeExperiments.length > 0) {
-        experiments = runtimeExperiments.map((runtime) => {
-          const p = persistedById.get(runtime.experiment_id);
-          return p
-            ? {
-                ...p,
-                status: runtime.status ?? p.status,
-                current_round: runtime.current_round ?? p.current_round,
-                total_rounds: runtime.total_rounds ?? p.total_rounds,
-              }
-            : runtime;
-        });
+      const runtimeList = response.data.experiments || [];
+      const runtimeById = new Map(runtimeList.map((e) => [e.experiment_id, e]));
+      const remoteRuntime = runtimeList.filter(isRemoteFederatedExperiment);
+      const seenIds = new Set();
+      const merged = [];
+
+      for (const p of persisted) {
+        if (!isRemoteFederatedExperiment(p)) continue;
+        seenIds.add(p.experiment_id);
+        const rt = runtimeById.get(p.experiment_id);
+        merged.push(
+          sanitizeFederatedExperiment(
+            rt
+              ? {
+                  ...p,
+                  status: rt.status ?? p.status,
+                  current_round: rt.current_round ?? p.current_round,
+                  total_rounds: rt.total_rounds ?? p.total_rounds,
+                }
+              : p
+          )
+        );
       }
+
+      for (const rt of remoteRuntime) {
+        if (!seenIds.has(rt.experiment_id)) {
+          merged.push(sanitizeFederatedExperiment(rt));
+        }
+      }
+
+      experiments = merged;
     } catch (err) {
       // Fallback to persisted list when runtime backend is busy
     }
@@ -1507,9 +1560,14 @@ router.get(
       }
     }
 
-    // In federated learning, all authenticated clients are permitted to download the global model
+    // Only admin/owner or collaborative remote clients may download the global model
     if (!user) {
       throw new AppError('Authentication required to download model', 401);
+    }
+    if (experiment && !isRemoteFederatedExperiment(experiment) && !hasExperimentAccess(user, experiment)) {
+      throw new AppError('Access denied: You do not have permission to download this experiment model', 403, {
+        experiment_id: id,
+      });
     }
 
     try {
@@ -1560,6 +1618,12 @@ router.get(
         }
         throw error;
       }
+    }
+
+    if (!isRemoteFederatedExperiment(experiment) && !hasExperimentAccess(req.user, experiment)) {
+      throw new AppError('Access denied: You do not have permission to access this experiment script', 403, {
+        experiment_id: id,
+      });
     }
 
     const protoHeader = (req.get('x-forwarded-proto') || req.protocol || 'http').split(',')[0].trim();
@@ -1615,32 +1679,12 @@ async function syncAggregatedRoundCacheAndDb({ id, round, clientId, aggStats, re
       // Non-fatal if DB row wasn't created via Node API
     }
   }
-
-  const wsServer = req.app.locals.wsServer;
-  if (wsServer && typeof round === 'number') {
-    wsServer.broadcastTrainingRoundComplete(id, {
-      round,
-      status: 'aggregated',
-      client_id: clientId,
-      clientsParticipated: aggStats?.num_participating_clients || 1,
-      totalRounds: existing?.total_rounds || existing?.config?.num_rounds,
-      loss: 0.0,
-    });
-    if (aggStats && typeof aggStats.epsilon === 'number') {
-      const targetEps = existing?.config?.epsilon || 1.0;
-      wsServer.broadcastPrivacyBudgetUpdate(id, {
-        round,
-        epsilon: aggStats.epsilon,
-        delta: existing?.config?.delta || 1e-5,
-        percentageConsumed: Math.min(100, (aggStats.epsilon / targetEps) * 100),
-      });
-    }
-  }
 }
 
 /**
  * GET /api/experiments/:id/federated-status
- * Fetch sanitized round, client participation, and communication telemetry for federated clients.
+ * Fetch round state and privacy telemetry for collaborative federated clients.
+ * Non-admin callers only receive global round progress and their own submitted updates.
  */
 router.get(
   '/:id/federated-status',
@@ -1648,6 +1692,7 @@ router.get(
   validateParams(experimentIdSchema),
   asyncHandler(async (req, res) => {
     const { id } = req.params;
+    const user = req.user;
     try {
       const [statusRes, trainRes, privRes, commRes] = await Promise.all([
         axiosClient.get(`/train/${id}/status`),
@@ -1655,14 +1700,59 @@ router.get(
         axiosClient.get(`/train/${id}/metrics/privacy`, { params: { limit: 100, offset: 0 } }),
         axiosClient.get(`/train/${id}/metrics/communication`, { params: { limit: 100, offset: 0 } }),
       ]);
+
+      let experimentRecord = experimentCache.get(`experiment:${id}`);
+      if (!experimentRecord && process.env.NODE_ENV !== 'test') {
+        experimentRecord = await getPersistedExperiment(id);
+      }
+      const statusData = statusRes.data || {};
+      const mergedExp = experimentRecord ? { ...experimentRecord, ...statusData, experiment_id: id } : { ...statusData, experiment_id: id };
+
+      if (!isRemoteFederatedExperiment(mergedExp) && !hasExperimentAccess(user, mergedExp)) {
+        throw new AppError('Access denied: You do not have permission to view this experiment', 403, {
+          experiment_id: id,
+        });
+      }
+
+      let training = trainRes.data?.metrics || [];
+      let communication = commRes.data?.metrics || [];
+      const privacy = privRes.data?.metrics || [];
+
+      if (user.role !== 'admin') {
+        const ownId = user.username;
+        training = training.map((entry) => {
+          const stripRecord = (rec = {}) => {
+            const ownMetrics = Array.isArray(rec.client_metrics)
+              ? rec.client_metrics.filter((c) => c.client_id === ownId)
+              : [];
+            const { client_loss, client_ledger, ...rest } = rec;
+            return { ...rest, client_metrics: ownMetrics };
+          };
+          if (Array.isArray(entry?.data)) {
+            return { ...entry, data: entry.data.map(stripRecord) };
+          }
+          return stripRecord(entry);
+        });
+        communication = communication.map((entry) => {
+          const stripComm = (rec = {}) => {
+            const { participating_clients, client_sample_counts, client_ledger, ...rest } = rec;
+            return rest;
+          };
+          if (Array.isArray(entry?.data)) {
+            return { ...entry, data: entry.data.map(stripComm) };
+          }
+          return stripComm(entry);
+        });
+      }
+
       return res.status(200).json({
         experiment_id: id,
-        status: statusRes.data?.status,
-        current_round: statusRes.data?.current_round ?? 0,
-        total_rounds: statusRes.data?.total_rounds ?? 0,
-        training: trainRes.data?.metrics || [],
-        privacy: privRes.data?.metrics || [],
-        communication: commRes.data?.metrics || [],
+        status: statusData?.status,
+        current_round: statusData?.current_round ?? 0,
+        total_rounds: statusData?.total_rounds ?? 0,
+        training,
+        privacy,
+        communication,
         timestamp: new Date().toISOString(),
       });
     } catch (error) {

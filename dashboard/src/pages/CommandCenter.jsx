@@ -96,7 +96,7 @@ const RunCard = ({ experiment, onOpen, onPause, onResume, onStop }) => {
         <Chip size="small" color={tone} label={experiment.status || 'pending'} className="command-status" />
       </Box>
       <Typography className="command-run-scope">
-        {config.dataset || 'SMD'} · {config.workflow_mode === 'standard_fedavg' ? 'standard FedAvg baseline' : 'SentryFL workflow'} · {config.num_clients || config.federated?.num_clients || '—'} simulated clients
+        {config.dataset || 'SMD'} · {config.workflow_mode === 'standard_fedavg' ? 'standard FedAvg baseline' : 'SentryFL workflow'} · {config.num_clients || config.federated?.num_clients || '—'} {config.federation_mode === 'remote' ? 'remote client slots' : 'simulated clients'}
       </Typography>
       <Box className="command-progress-meta">
         <span>ROUND {current || 0} / {total || '—'}</span>
