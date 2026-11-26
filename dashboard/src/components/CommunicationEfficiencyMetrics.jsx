@@ -378,7 +378,16 @@ const CommunicationEfficiencyMetrics = ({
 
         {/* Average Stats Summary */}
         {perClientStats.length > 0 && (
-          <Box sx={{ mt: 2, p: 2, bgcolor: 'grey.50', borderRadius: 1 }}>
+          <Box
+            sx={{
+              mt: 2,
+              p: 2,
+              bgcolor: (t) => t.sentry?.surfaceAlt || t.palette.action.hover,
+              border: '1px solid',
+              borderColor: 'divider',
+              borderRadius: 1,
+            }}
+          >
             <Grid container spacing={2}>
               <Grid item xs={6} sm={3}>
                 <Typography variant="caption" color="text.secondary">

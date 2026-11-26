@@ -392,3 +392,160 @@
   .login-story-description { font-size: 0.9rem !important; }
   .login-feature-copy { font-size: 0.68rem !important; }
 }
+
+/* Light theme overrides — keep text and frosted cards high-contrast on light surfaces */
+:root[data-color-mode="light"] .command-kicker,
+:root[data-color-mode="light"] .command-eyebrow {
+  color: #374843;
+}
+
+:root[data-color-mode="light"] .command-live-dot {
+  background: #15803d;
+  box-shadow: 0 0 0 4px rgba(21, 128, 61, 0.14), 0 0 12px rgba(21, 128, 61, 0.45);
+}
+
+:root[data-color-mode="light"] .command-title {
+  background: linear-gradient(110deg, #0f172a 10%, #0f766e 58%, #0369a1 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+:root[data-color-mode="light"] .command-subtitle,
+:root[data-color-mode="light"] .command-metric-detail,
+:root[data-color-mode="light"] .command-section-copy,
+:root[data-color-mode="light"] .command-empty {
+  color: #374843;
+}
+
+:root[data-color-mode="light"] .command-metric,
+:root[data-color-mode="light"] .command-run-card,
+:root[data-color-mode="light"] .command-empty,
+:root[data-color-mode="light"] .command-table-shell {
+  background: #ffffff;
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  box-shadow: 0 12px 28px -22px rgba(15, 23, 42, 0.28);
+}
+
+:root[data-color-mode="light"] .command-metric-icon { color: #0f766e; }
+:root[data-color-mode="light"] .command-metric-violet .command-metric-icon { color: #6d28d9; }
+:root[data-color-mode="light"] .command-metric-green .command-metric-icon { color: #15803d; }
+:root[data-color-mode="light"] .command-metric-red .command-metric-icon { color: #be123c; }
+
+:root[data-color-mode="light"] .command-metric-value,
+:root[data-color-mode="light"] .command-section-title,
+:root[data-color-mode="light"] .command-run-name,
+:root[data-color-mode="light"] .command-run-value,
+:root[data-color-mode="light"] .command-empty h6,
+:root[data-color-mode="light"] .command-progress-meta strong {
+  color: #0f172a;
+}
+
+:root[data-color-mode="light"] .command-run-name:hover,
+:root[data-color-mode="light"] .command-sparkline,
+:root[data-color-mode="light"] .command-empty svg {
+  color: #0f766e;
+}
+
+:root[data-color-mode="light"] .command-run-card:hover {
+  border-color: rgba(15, 118, 110, 0.42);
+}
+
+:root[data-color-mode="light"] .command-run-scope,
+:root[data-color-mode="light"] .command-mono,
+:root[data-color-mode="light"] .command-progress-meta,
+:root[data-color-mode="light"] .command-sparkline-empty,
+:root[data-color-mode="light"] .command-scope-strip small {
+  color: #475a54;
+}
+
+:root[data-color-mode="light"] .command-scope-strip {
+  border-color: rgba(15, 23, 42, 0.12);
+  background: rgba(15, 23, 42, 0.10);
+}
+
+:root[data-color-mode="light"] .command-scope-strip > div {
+  background: #ffffff;
+}
+
+:root[data-color-mode="light"] .command-scope-strip strong {
+  color: #0f172a;
+}
+
+:root[data-color-mode="light"] .login-page {
+  color: #0f172a;
+  background:
+    radial-gradient(800px 650px at 8% 8%, rgba(15, 118, 110, 0.10), transparent 62%),
+    radial-gradient(700px 650px at 92% 92%, rgba(234, 88, 12, 0.08), transparent 64%),
+    #f3f5f2;
+}
+
+:root[data-color-mode="light"] .login-shell {
+  border-color: rgba(15, 23, 42, 0.12);
+  background: #ffffff;
+  box-shadow: 0 24px 64px -32px rgba(15, 23, 42, 0.22);
+}
+
+:root[data-color-mode="light"] .login-story {
+  background:
+    linear-gradient(155deg, #e7f3ef 0%, #f4f7f5 100%),
+    radial-gradient(circle at 20% 20%, rgba(15, 118, 110, 0.10), transparent 40%);
+}
+
+:root[data-color-mode="light"] .login-story::before { border-color: rgba(15, 118, 110, 0.18); }
+:root[data-color-mode="light"] .login-story::after { border-color: rgba(234, 88, 12, 0.12); }
+
+:root[data-color-mode="light"] .login-brand-mark,
+:root[data-color-mode="light"] .login-panel-icon {
+  color: #ffffff;
+  background: linear-gradient(135deg, #0f766e, #0d9488 65%, #ea580c);
+  box-shadow: 0 8px 20px -6px rgba(15, 118, 110, 0.35);
+}
+
+:root[data-color-mode="light"] .login-brand-name,
+:root[data-color-mode="light"] .login-story-title,
+:root[data-color-mode="light"] .login-feature-title,
+:root[data-color-mode="light"] .login-telemetry-stats strong,
+:root[data-color-mode="light"] .login-panel-header h2 {
+  color: #0f172a;
+}
+
+:root[data-color-mode="light"] .login-story-title span,
+:root[data-color-mode="light"] .login-feature > svg,
+:root[data-color-mode="light"] .login-product-label,
+:root[data-color-mode="light"] .login-register-prompt a {
+  color: #0f766e;
+}
+
+:root[data-color-mode="light"] .login-eyebrow,
+:root[data-color-mode="light"] .login-telemetry-topline,
+:root[data-color-mode="light"] .login-story-description,
+:root[data-color-mode="light"] .login-feature-copy,
+:root[data-color-mode="light"] .login-telemetry-stats small,
+:root[data-color-mode="light"] .login-panel-header p,
+:root[data-color-mode="light"] .login-trust-row,
+:root[data-color-mode="light"] .login-register-prompt {
+  color: #374843;
+}
+
+:root[data-color-mode="light"] .login-telemetry-topline span {
+  color: #15803d;
+}
+
+:root[data-color-mode="light"] .login-telemetry-graph span {
+  background: linear-gradient(180deg, #0f766e, rgba(15, 118, 110, 0.25));
+}
+
+:root[data-color-mode="light"] .login-telemetry-card {
+  border-color: rgba(15, 23, 42, 0.12);
+  background: #ffffff;
+}
+
+:root[data-color-mode="light"] .login-panel {
+  border-left-color: rgba(15, 23, 42, 0.10);
+  background: #ffffff;
+}
+
+:root[data-color-mode="light"] .login-panel .MuiOutlinedInput-root {
+  background: #ffffff;
+}

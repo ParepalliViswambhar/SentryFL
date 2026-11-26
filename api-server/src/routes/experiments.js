@@ -25,6 +25,7 @@ const {
   experimentQuerySchema,
   metricsQuerySchema,
 } = require('../schemas/experiments');
+const { buildClientScript } = require('../utils/clientScriptTemplate');
 
 const router = express.Router();
 
@@ -1532,6 +1533,49 @@ router.get(
       }
       throw error;
     }
+  })
+);
+
+/**
+ * GET /api/experiments/:id/client-script
+ * Download a standalone interactive Python script pre-configured for this experiment.
+ */
+router.get(
+  '/:id/client-script',
+  authenticate,
+  validateParams(experimentIdSchema),
+  asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    let experiment = experimentCache.get(`experiment:${id}`);
+    if (!experiment) {
+      experiment = await getPersistedExperiment(id);
+    }
+    if (!experiment) {
+      try {
+        const statusRes = await axiosClient.get(`/train/${id}/status`);
+        experiment = { experiment_id: id, ...statusRes.data };
+      } catch (error) {
+        if (error.response?.status === 404) {
+          throw new AppError('Experiment not found', 404, { experiment_id: id });
+        }
+        throw error;
+      }
+    }
+
+    const protoHeader = (req.get('x-forwarded-proto') || req.protocol || 'http').split(',')[0].trim();
+    const hostHeader = (req.get('x-forwarded-host') || req.get('host') || 'localhost').split(',')[0].trim();
+    const serverUrl = `${protoHeader}://${hostHeader}`;
+    const experimentName = experiment.experiment_name || experiment.config?.experiment_name || id;
+    const scriptBody = buildClientScript({
+      experimentId: id,
+      experimentName,
+      serverUrl,
+    });
+
+    const shortId = String(id).replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 8) || 'exp';
+    res.setHeader('Content-Type', 'text/x-python; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="sentryfl_client_${shortId}.py"`);
+    return res.status(200).send(scriptBody);
   })
 );
 

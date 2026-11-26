@@ -356,7 +356,16 @@ const AnomalyScoreAnalysis = ({
             </Grid>
 
             {/* Confusion Matrix Summary */}
-            <Box sx={{ mt: 2, p: 2, bgcolor: 'grey.50', borderRadius: 1 }}>
+            <Box
+              sx={{
+                mt: 2,
+                p: 2,
+                bgcolor: (t) => t.sentry?.surfaceAlt || t.palette.action.hover,
+                border: '1px solid',
+                borderColor: 'divider',
+                borderRadius: 1,
+              }}
+            >
               <Typography variant="body2" gutterBottom>
                 <strong>Confusion Matrix at Current Threshold:</strong>
               </Typography>
@@ -424,7 +433,16 @@ const AnomalyScoreAnalysis = ({
 
           {/* Summary Statistics */}
           {perClientMetrics.length > 1 && (
-            <Box sx={{ mt: 2, p: 2, bgcolor: 'grey.50', borderRadius: 1 }}>
+            <Box
+              sx={{
+                mt: 2,
+                p: 2,
+                bgcolor: (t) => t.sentry?.surfaceAlt || t.palette.action.hover,
+                border: '1px solid',
+                borderColor: 'divider',
+                borderRadius: 1,
+              }}
+            >
               <Typography variant="body2" gutterBottom>
                 <strong>Summary Across All Clients:</strong>
               </Typography>

@@ -66,7 +66,11 @@ class PLMTimeSeriesBackbone(nn.Module):
         freeze_backbone: bool = True,
         max_seq_len: int = 512,
         dropout: float = 0.1,
-        use_custom_positional_encoding: Optional[bool] = None
+        use_custom_positional_encoding: Optional[bool] = None,
+        init_from_pretrained: bool = True,
+        num_layers: Optional[int] = None,
+        vocab_size: Optional[int] = None,
+        max_positions: Optional[int] = None,
     ):
         """
         Initialize PLM backbone for time-series
@@ -91,22 +95,32 @@ class PLMTimeSeriesBackbone(nn.Module):
         self.freeze_backbone = freeze_backbone
 
         # Load pre-trained transformer model if dimension matches (or default);
-        # otherwise use a dimension-matched GPT-2 configuration (and offline fallback).
+        # otherwise use a dimension-matched GPT-2 configuration (or skip HF fetch
+        # when rebuilding an architecture directly from an already-loaded checkpoint).
         loaded_pretrained = False
-        try:
-            cfg = AutoConfig.from_pretrained(model_name)
-            if hidden_dim is None or getattr(cfg, "hidden_size", None) == hidden_dim:
-                self.config = cfg
-                self.transformer = AutoModel.from_pretrained(model_name)
-                loaded_pretrained = True
-        except Exception:
-            pass
+        if init_from_pretrained:
+            try:
+                cfg = AutoConfig.from_pretrained(model_name)
+                if hidden_dim is None or getattr(cfg, "hidden_size", None) == hidden_dim:
+                    self.config = cfg
+                    self.transformer = AutoModel.from_pretrained(model_name)
+                    loaded_pretrained = True
+            except Exception:
+                pass
 
         if not loaded_pretrained:
             from transformers import GPT2Config, GPT2Model
             target_hidden = hidden_dim or 128
-            n_head = 4 if target_hidden % 4 == 0 else (2 if target_hidden % 2 == 0 else 1)
-            self.config = GPT2Config(n_embd=target_hidden, n_layer=2, n_head=n_head)
+            n_head = 12 if target_hidden == 768 else (
+                4 if target_hidden % 4 == 0 else (2 if target_hidden % 2 == 0 else 1)
+            )
+            self.config = GPT2Config(
+                vocab_size=vocab_size or 50257,
+                n_positions=max_positions or 1024,
+                n_embd=target_hidden,
+                n_layer=num_layers or 2,
+                n_head=n_head,
+            )
             self.transformer = GPT2Model(self.config)
 
         # Set hidden dimension from transformer config if not specified
@@ -251,7 +265,11 @@ class PLMAnomalyDetector(nn.Module):
         peft_method: str = 'full_head',
         lora_rank: int = 8,
         lora_alpha: float = 16.0,
-        lora_targets: Optional[list] = None
+        lora_targets: Optional[list] = None,
+        init_from_pretrained: bool = True,
+        num_layers: Optional[int] = None,
+        vocab_size: Optional[int] = None,
+        max_positions: Optional[int] = None,
     ):
         """
         Initialize complete anomaly detection model
@@ -288,7 +306,11 @@ class PLMAnomalyDetector(nn.Module):
             freeze_backbone=freeze_backbone,
             max_seq_len=max_seq_len,
             dropout=dropout,
-            use_custom_positional_encoding=use_custom_positional_encoding
+            use_custom_positional_encoding=use_custom_positional_encoding,
+            init_from_pretrained=init_from_pretrained,
+            num_layers=num_layers,
+            vocab_size=vocab_size,
+            max_positions=max_positions,
         )
 
         # Initialize detection head

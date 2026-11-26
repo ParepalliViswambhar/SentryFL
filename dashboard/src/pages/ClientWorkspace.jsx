@@ -51,6 +51,7 @@ const ClientWorkspace = () => {
 
   // Download state
   const [downloadStatus, setDownloadStatus] = useState({ state: 'idle', message: '' });
+  const [scriptStatus, setScriptStatus] = useState({ state: 'idle', message: '' });
 
   // MIA Report Request state
   const [miaNote, setMiaNote] = useState('');
@@ -118,6 +119,32 @@ const ClientWorkspace = () => {
       setDownloadStatus({
         state: 'error',
         message: err.response?.data?.message || 'Global model is still initializing or not yet ready.',
+      });
+    }
+  };
+
+  const handleDownloadClientScript = async () => {
+    if (!expId) return;
+    setScriptStatus({ state: 'loading', message: '' });
+    try {
+      const response = await apiClient.get(`/experiments/${expId}/client-script`, {
+        responseType: 'blob',
+        timeout: 30000,
+      });
+      const url = URL.createObjectURL(response.data);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `sentryfl_client_${String(expId).slice(0, 8)}.py`;
+      link.click();
+      URL.revokeObjectURL(url);
+      setScriptStatus({
+        state: 'success',
+        message: 'Downloaded standalone interactive Python client script. Run it locally to load your dataset and finetune or predict.',
+      });
+    } catch (err) {
+      setScriptStatus({
+        state: 'error',
+        message: err.response?.data?.message || 'Unable to download client script.',
       });
     }
   };
@@ -320,9 +347,31 @@ const ClientWorkspace = () => {
             <Box sx={{ display: 'flex', gap: 1.5, alignItems: 'flex-start' }}>
               <TerminalRoundedIcon color="primary" sx={{ fontSize: 28 }} />
               <Box sx={{ width: '100%' }}>
-                <Typography fontWeight={700} gutterBottom>
-                  Client CLI Commands (Run on your device)
-                </Typography>
+                <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" spacing={1} alignItems={{ sm: 'center' }} sx={{ mb: 1.5 }}>
+                  <Box>
+                    <Typography fontWeight={700}>
+                      Client Training &amp; Inference Code (Run on your device)
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Download the self-contained script pre-configured for this experiment — it prompts you to load your local CSV/NumPy dataset.
+                    </Typography>
+                  </Box>
+                  <Button
+                    variant="outlined"
+                    size="small"
+                    startIcon={<DownloadRoundedIcon />}
+                    onClick={handleDownloadClientScript}
+                    disabled={!activeExperiment || scriptStatus.state === 'loading'}
+                    sx={{ whiteSpace: 'nowrap' }}
+                  >
+                    {scriptStatus.state === 'loading' ? 'Generating…' : 'Download Finetuning Script (.py)'}
+                  </Button>
+                </Stack>
+                {scriptStatus.message && (
+                  <Alert severity={scriptStatus.state === 'error' ? 'error' : 'success'} sx={{ mb: 1.5 }}>
+                    {scriptStatus.message}
+                  </Alert>
+                )}
                 <Box
                   sx={{
                     p: 2,
@@ -335,6 +384,11 @@ const ClientWorkspace = () => {
                     overflowX: 'auto',
                   }}
                 >
+                  <div># Option 0 — Interactive guided script (prompts to load your dataset &amp; choose predict/finetune):</div>
+                  <div style={{ color: '#4ade80' }}>
+                    python sentryfl_client_{expId ? String(expId).slice(0, 8) : '<EXP>'}.py
+                  </div>
+                  <br />
                   <div># Option A — Use global model directly for local anomaly detection:</div>
                   <div style={{ color: '#4ade80' }}>
                     python sentryfl_client.py predict --model {expId || '<EXP_ID>'}-global-model.pt --data private_telemetry.csv

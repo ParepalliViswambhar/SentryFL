@@ -694,7 +694,7 @@ class AggregationServer:
         logger.info(f"Loading checkpoint from {checkpoint_path}")
         
         try:
-            checkpoint = torch.load(checkpoint_path, map_location=self.device)
+            checkpoint = torch.load(checkpoint_path, map_location=self.device, weights_only=False)
             
             # Load model state
             self.global_model.load_state_dict(checkpoint['model_state_dict'])

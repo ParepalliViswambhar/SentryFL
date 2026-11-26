@@ -11,10 +11,12 @@ without exposing sensitive data:
 
 import argparse
 import base64
+import getpass
 import io
 import json
 import logging
 import os
+import re
 import sys
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple, Union
@@ -161,10 +163,31 @@ class SentryFLClient:
         hidden_dim = 128
         if "backbone.ts_projection.weight" in state_dict:
             hidden_dim = state_dict["backbone.ts_projection.weight"].shape[0]
+        elif "ts_projection.weight" in state_dict:
+            hidden_dim = state_dict["ts_projection.weight"].shape[0]
 
         peft_method = "full_head"
         if any("lora" in k for k in state_dict.keys()):
             peft_method = "ffa_lora"
+
+        layer_indices = []
+        for k in state_dict.keys():
+            match = re.search(r"transformer\.h\.(\d+)\.", k)
+            if match:
+                layer_indices.append(int(match.group(1)))
+
+        has_embedded_weights = bool(layer_indices) or any(
+            k.endswith("transformer.wte.weight") for k in state_dict.keys()
+        )
+        num_layers = (max(layer_indices) + 1) if layer_indices else None
+        wte_tensor = state_dict.get("backbone.transformer.wte.weight")
+        if wte_tensor is None:
+            wte_tensor = state_dict.get("transformer.wte.weight")
+        wpe_tensor = state_dict.get("backbone.transformer.wpe.weight")
+        if wpe_tensor is None:
+            wpe_tensor = state_dict.get("transformer.wpe.weight")
+        vocab_size = int(wte_tensor.shape[0]) if wte_tensor is not None else None
+        max_positions = int(wpe_tensor.shape[0]) if wpe_tensor is not None else None
 
         self.model = PLMAnomalyDetector(
             input_dim=input_dim,
@@ -172,6 +195,10 @@ class SentryFLClient:
             model_name="gpt2",
             freeze_backbone=True,
             peft_method=peft_method,
+            init_from_pretrained=not has_embedded_weights,
+            num_layers=num_layers,
+            vocab_size=vocab_size,
+            max_positions=max_positions,
         )
 
         # Load weights with compatibility
@@ -327,6 +354,7 @@ class SentryFLClient:
         learning_rate: float = 0.001,
         max_grad_norm: float = 1.0,
         output_update_path: Optional[str] = None,
+        window_size: int = 100,
     ) -> Tuple[Path, Dict[str, Any]]:
         """
         Train locally on private data using local gradient descent.
@@ -337,7 +365,9 @@ class SentryFLClient:
                 raise ValueError("Must provide model_path or call load_model() first.")
             self.load_model(model_path)
 
-        windows, _ = self.load_timeseries_data(data_path, target_dim=self.model_input_dim)
+        windows, _ = self.load_timeseries_data(
+            data_path, window_size=window_size, target_dim=self.model_input_dim
+        )
         self.model.train()
 
         # Dummy self-supervised / reconstruction target
@@ -481,6 +511,18 @@ class SentryFLClient:
 
         raise RuntimeError(f"Failed to upload model update to {self.server_url}: {last_error}")
 
+    def list_federated_experiments(self) -> list:
+        """Discover active federated experiments from the server."""
+        url = f"{self.server_url}/api/experiments/federated"
+        headers = self._get_headers(content_type=None)
+        if requests:
+            res = requests.get(url, headers=headers, timeout=30)
+            res.raise_for_status()
+            return res.json().get("experiments", [])
+        req = urllib_request.Request(url, headers=headers)
+        with urllib_request.urlopen(req, timeout=30) as resp:
+            return json.loads(resp.read().decode("utf-8")).get("experiments", [])
+
     def request_mia_report(self, experiment_id: Optional[str] = None, note: str = "") -> Dict[str, Any]:
         """Request an empirical Membership Inference Attack (MIA) report from the admin."""
         exp_id = experiment_id or self.experiment_id
@@ -512,15 +554,124 @@ class SentryFLClient:
             return json.loads(resp.read().decode("utf-8"))
 
 
+def run_interactive_wizard(
+    default_server: str = "http://localhost",
+    default_experiment: Optional[str] = None,
+    default_username: Optional[str] = None,
+) -> None:
+    """Guided interactive prompt for edge clients to load their dataset and use or finetune the global model."""
+    print("\n=== SentryFL Interactive Edge Client ===")
+    print("Your raw dataset stays strictly on this computer. Only trained weight deltas leave your machine.\n")
+
+    server_input = input(f"Server URL [{default_server}]: ").strip() or default_server
+    username = input(f"Username [{default_username or 'client1'}]: ").strip() or (default_username or "client1")
+    try:
+        password = getpass.getpass("Password: ")
+    except Exception:
+        password = input("Password: ")
+
+    client = SentryFLClient(server_url=server_input, client_id=username)
+    client.login(username, password)
+
+    exp_id = default_experiment
+    try:
+        experiments = client.list_federated_experiments()
+    except Exception as exc:
+        experiments = []
+        logger.warning(f"Could not fetch federated experiment list: {exc}")
+
+    if experiments:
+        print("\nAvailable Federated Experiments:")
+        for idx, exp in enumerate(experiments, start=1):
+            eid = exp.get("experiment_id") or exp.get("id")
+            ename = exp.get("experiment_name") or exp.get("name") or eid
+            status = exp.get("status", "unknown")
+            rnd = exp.get("current_round", exp.get("currentRound", 0))
+            print(f"  [{idx}] {ename} (ID: {eid} | status={status} | round={rnd})")
+        prompt_label = f"Select experiment [1-{len(experiments)} or ID]"
+        if exp_id:
+            prompt_label += f" [default {exp_id}]"
+        choice = input(f"{prompt_label}: ").strip()
+        if choice.isdigit() and 1 <= int(choice) <= len(experiments):
+            picked = experiments[int(choice) - 1]
+            exp_id = picked.get("experiment_id") or picked.get("id")
+        elif choice:
+            exp_id = choice
+        elif not exp_id:
+            exp_id = experiments[0].get("experiment_id") or experiments[0].get("id")
+    elif not exp_id:
+        exp_id = input("Enter Experiment ID: ").strip()
+
+    if not exp_id:
+        raise ValueError("No experiment ID selected.")
+    client.experiment_id = exp_id
+
+    print("\nChoose an action:")
+    print("  1) Download global model & run local anomaly detection (inference only)")
+    print("  2) Download global model, finetune locally on your dataset & upload weights")
+    print("  3) Run full round (download -> predict anomalies -> finetune locally -> upload)")
+    print("  4) Request MIA privacy report from admin / check received reports")
+    action = input("Enter choice [1-4, default 3]: ").strip() or "3"
+
+    if action == "4":
+        sub = input("Enter 'req' to request report or 'list' to view reports [req]: ").strip().lower() or "req"
+        if sub == "list":
+            print(json.dumps(client.fetch_mia_reports(exp_id), indent=2))
+        else:
+            note = input("Optional request note: ").strip()
+            print(json.dumps(client.request_mia_report(exp_id, note=note), indent=2))
+        return
+
+    data_path_str = ""
+    while not data_path_str or not Path(data_path_str).exists():
+        data_path_str = input("\nLoad your local dataset (path to .csv, .txt, .npy, or .npz): ").strip().strip('"').strip("'")
+        if not Path(data_path_str).exists():
+            print(f"File not found: {data_path_str}. Please enter a valid local file path.")
+
+    print(f"\n[1] Downloading latest global model for experiment {exp_id}...")
+    model_path = client.download_global_model(experiment_id=exp_id)
+
+    if action in ("1", "3"):
+        out_preds = f"{username}-{exp_id[:8]}-predictions.json"
+        print("[2] Running local anomaly detection on your private dataset...")
+        pred = client.predict_local(data_path=data_path_str, model_path=model_path, output_path=out_preds)
+        print(
+            f"Local inference complete: {pred['anomalies_detected']}/{pred['total_windows']} "
+            f"anomalous windows ({pred['anomaly_rate']:.2%}) -> saved {out_preds}"
+        )
+
+    if action in ("2", "3"):
+        epochs_str = input("Local finetuning epochs [2]: ").strip() or "2"
+        batch_str = input("Batch size [16]: ").strip() or "16"
+        lr_str = input("Learning rate [0.001]: ").strip() or "0.001"
+        print("[3] Finetuning global model locally on your private dataset...")
+        update_path, train_metrics = client.train_local(
+            data_path=data_path_str,
+            model_path=model_path,
+            epochs=int(epochs_str),
+            batch_size=int(batch_str),
+            learning_rate=float(lr_str),
+        )
+        print(f"Local training complete (loss={train_metrics['final_loss']:.4f}). Uploading weights only...")
+        res = client.upload_update(update_path=update_path, experiment_id=exp_id, client_id=username)
+        print(f"Upload accepted! Global model updated to Round {res.get('round', res.get('current_round'))}.")
+
+
 def main():
     parser = argparse.ArgumentParser(description="SentryFL Standalone Federated Learning Client")
-    subparsers = parser.add_subparsers(dest="command", required=True)
+    subparsers = parser.add_subparsers(dest="command", required=False)
 
     def _add_auth_args(p):
         p.add_argument("--server", "--server-url", dest="server", default="http://localhost")
         p.add_argument("--token", help="Bearer authentication token")
         p.add_argument("--username", help="Username for automatic login")
         p.add_argument("--password", help="Password for automatic login")
+
+    # interactive
+    inter_parser = subparsers.add_parser("interactive", help="Guided prompt to load dataset and use/finetune model")
+    inter_parser.add_argument("--server", "--server-url", dest="server", default="http://localhost")
+    inter_parser.add_argument("--experiment", "--experiment-id", dest="experiment", default=None)
+    inter_parser.add_argument("--username", default=None)
 
     # login
     login_parser = subparsers.add_parser("login", help="Authenticate with the SentryFL server")
@@ -580,6 +731,14 @@ def main():
     list_mia_parser.add_argument("--experiment", "--experiment-id", dest="experiment", default=None)
 
     args = parser.parse_args()
+    if not args.command or args.command == "interactive":
+        run_interactive_wizard(
+            default_server=getattr(args, "server", "http://localhost"),
+            default_experiment=getattr(args, "experiment", None),
+            default_username=getattr(args, "username", None),
+        )
+        return
+
     client = SentryFLClient(
         server_url=getattr(args, "server", "http://localhost"),
         experiment_id=getattr(args, "experiment", None),
